@@ -25,7 +25,7 @@ SERPAPI_KEY = st.secrets["SERPAPI_KEY"]
 CHAVE_ATIVACAO_STRIPE = st.secrets.get("CHAVE_ACESSO_CLIENTES", "123452026") 
 
 ARQUIVO_BD = "monitoramentos.json"
-ARQUIVO_USUARIOS = "usuarios.json" # NOVO: Banco de dados de clientes
+ARQUIVO_USUARIOS = "usuarios.json" # Banco de dados de clientes
 
 # Funções de Banco de Dados de Usuários
 def carregar_usuarios():
@@ -39,7 +39,7 @@ def salvar_usuarios(dados):
         json.dump(dados, f, indent=4, ensure_ascii=False)
 
 # ==========================================
-# SISTEMA DE LOGIN INDIVIDUAL (NOVO)
+# SISTEMA DE LOGIN INDIVIDUAL
 # ==========================================
 if "autenticado" not in st.session_state:
     st.session_state["autenticado"] = False
@@ -102,7 +102,7 @@ if not st.session_state["autenticado"]:
     st.stop() # Bloqueia o app aqui se não logar!
 
 # ==========================================
-# O RESTANTE DO CÓDIGO (INTACTO)
+# O RESTANTE DO CÓDIGO (COM NOVOS AEROPORTOS)
 # ==========================================
 
 AEROPORTOS = {
@@ -116,6 +116,7 @@ AEROPORTOS = {
     "Salvador (SSA) - Dep. Luís Eduardo Magalhães": "SSA",
     "Recife (REC) - Guararapes": "REC",
     "Fortaleza (FOR) - Pinto Martins": "FOR",
+    "Jericoacoara, CE (JJD) - Comandante Ariston Pessoa": "JJD",
     "Cancun, México (CUN)": "CUN",
     "Cape Town, África do Sul (CPT)": "CPT",
     "Joanesburgo, África do Sul (JNB)": "JNB",
@@ -442,7 +443,7 @@ iniciar_motor_fundo()
 # ==========================================
 st.sidebar.title("🤖 Painel do Robô")
 
-# NOVO: Botão de Logout na Barra Lateral
+# Botão de Logout na Barra Lateral
 st.sidebar.write(f"👤 Usuário: **{st.session_state['usuario_logado']}**")
 if st.sidebar.button("🚪 Sair (Logout)", use_container_width=True):
     st.session_state["autenticado"] = False
