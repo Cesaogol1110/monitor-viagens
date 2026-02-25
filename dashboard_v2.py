@@ -14,12 +14,12 @@ from twilio.rest import Client
 st.set_page_config(page_title="Robô de Viagens", layout="wide")
 
 # ==========================================
-# CONFIGURAÇÕES E BANCO DE DADOS LOCAL
+# CONFIGURAÇÕES E BANCO DE DADOS LOCAL (AGORA NO COFRE)
 # ==========================================
-TWILIO_ACCOUNT_SID = 'AC805a3e6e225cc9176090e6bb6601415d'
-TWILIO_AUTH_TOKEN = '7c3e2fc10a1c37b4d7ec9ecca89a3ae4'
-TWILIO_WHATSAPP_NUMBER = 'whatsapp:+14155238886' 
-SERPAPI_KEY = "e99b7b3097dd0aa8134e12509bb51caa6ee8792310fa9dbd338502f1ec316a48" 
+TWILIO_ACCOUNT_SID = st.secrets["TWILIO_ACCOUNT_SID"]
+TWILIO_AUTH_TOKEN = st.secrets["TWILIO_AUTH_TOKEN"]
+TWILIO_WHATSAPP_NUMBER = st.secrets["TWILIO_WHATSAPP_NUMBER"]
+SERPAPI_KEY = st.secrets["SERPAPI_KEY"]
 
 ARQUIVO_BD = "monitoramentos.json"
 
@@ -74,35 +74,6 @@ def testar_alerta_whatsapp(numero_destino, mensagem):
         return True, message.sid
     except Exception as e:
         return False, str(e)
-
-# ==========================================
-# O NOVO "OUVIDO" DO ROBÔ (WEBHOOK NATIVO STREAMLIT)
-# ==========================================
-parametros = st.query_params
-if "Body" in parametros and "From" in parametros:
-    msg = parametros.get("Body", "").strip().lower()
-    remetente = parametros.get("From", "")
-    
-    if msg.startswith("sim "):
-        codigo = msg.replace("sim ", "").strip().upper()
-        bd = carregar_bd()
-        if codigo in bd:
-            bd[codigo]["monitorar"] = True
-            salvar_bd(bd)
-            testar_alerta_whatsapp(remetente, f"✅ *Feito!* Orçamento `{codigo}` ativado com sucesso pelo WhatsApp. Avisarei às {bd[codigo]['horario']} sobre os preços novos.")
-        else:
-            testar_alerta_whatsapp(remetente, f"⚠️ Não encontrei o código `{codigo}`. Verifique se digitou corretamente.")
-    
-    elif msg.startswith("não ") or msg.startswith("nao "):
-        codigo = msg.replace("não ", "").replace("nao ", "").strip().upper()
-        bd = carregar_bd()
-        if codigo in bd:
-            bd[codigo]["monitorar"] = False
-            salvar_bd(bd)
-            testar_alerta_whatsapp(remetente, f"🛑 *Pausado!* Você não receberá mais atualizações automáticas do orçamento `{codigo}`.")
-    
-    # Interrompe a criação da tela visual, pois o robô do Twilio não precisa ver o aplicativo, só ativar a regra
-    st.stop()
 
 # ==========================================
 # FUNÇÕES DE BUSCA DE HOTEIS E VOOS
@@ -417,7 +388,7 @@ def loop_vigilante():
                                 msg_diaria += f"🔗 Voo: {pct['voo']['link']}\n"
                                 msg_diaria += "-----------------------\n"
                             
-                            msg_diaria += f"🛑 *Para parar de receber, responda: NÃO {cod}*"
+                            msg_diaria += f"🛑 *Para cancelar os avisos automáticos, acesse o painel e clique em Cancelar.*"
                             testar_alerta_whatsapp(info["telefone"], msg_diaria)
                         
                         info["ultimo_disparo"] = hoje
@@ -449,23 +420,23 @@ with st.sidebar.expander("📂 Consultar Orçamentos Salvos"):
             st.write(f"Status: {status_monitoramento}")
             st.divider()
 
-with st.sidebar.expander("📲 Resposta do Cliente / Ativação"):
-    st.write("A ativação agora é feita 100% pelo WhatsApp, mas você pode forçar por aqui se precisar.")
+with st.sidebar.expander("📲 Ativar Monitoramento Automático"):
+    st.write("Insira o código do seu pacote abaixo para receber as variações de preço todos os dias!")
     codigo_simulacao = st.text_input("Código do Orçamento (ex: A1B2C3)")
-    resposta_simulacao = st.selectbox("Ação", ["ATIVAR (Recebeu SIM)", "CANCELAR (Recebeu NÃO)"])
+    resposta_simulacao = st.selectbox("Ação", ["ATIVAR Monitoramento", "CANCELAR Monitoramento"])
     if st.button("Aplicar Ação", use_container_width=True):
         codigo_limpo = codigo_simulacao.strip().upper()
         if codigo_limpo in bd_atual:
-            if resposta_simulacao == "ATIVAR (Recebeu SIM)":
+            if resposta_simulacao == "ATIVAR Monitoramento":
                 bd_atual[codigo_limpo]["monitorar"] = True
                 salvar_bd(bd_atual)
-                st.sidebar.success(f"Monitoramento {codigo_limpo} ATIVADO!")
+                st.sidebar.success(f"✅ Monitoramento {codigo_limpo} ATIVADO! Avisaremos no WhatsApp cadastrado.")
             else:
                 bd_atual[codigo_limpo]["monitorar"] = False
                 salvar_bd(bd_atual)
-                st.sidebar.warning(f"Monitoramento {codigo_limpo} CANCELADO!")
+                st.sidebar.warning(f"🛑 Monitoramento {codigo_limpo} CANCELADO!")
         else:
-            st.sidebar.error("Código não encontrado.")
+            st.sidebar.error("Código não encontrado no banco de dados.")
 
 st.title("✈️ Monitor de Viagens Avançado")
 
@@ -629,7 +600,7 @@ if st.button("Buscar Pacotes & Salvar Automação", type="primary", use_containe
                     msg_automatica += f"🔗 Voo: {pct['voo']['link']}\n"
                     msg_automatica += "-----------------------\n"
                 
-                msg_automatica += f"\n🤖 *MONITORAMENTO DIÁRIO ({hora_str})*\nDeseja receber avisos de '{codigo_orcamento}'? Responda *SIM {codigo_orcamento}*"
+                msg_automatica += f"\n🤖 *MONITORAMENTO DIÁRIO ({hora_str})*\nPara ligar os alertas deste pacote, use o menu lateral do site e digite o código: *{codigo_orcamento}*"
                 
                 sucesso_wa, retorno_wa = testar_alerta_whatsapp(seu_numero, msg_automatica)
                 if not sucesso_wa:
