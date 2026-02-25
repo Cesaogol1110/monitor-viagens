@@ -14,14 +14,49 @@ from twilio.rest import Client
 st.set_page_config(page_title="Robô de Viagens", layout="wide")
 
 # ==========================================
-# CONFIGURAÇÕES E BANCO DE DADOS LOCAL (AGORA NO COFRE)
+# CONFIGURAÇÕES E BANCO DE DADOS LOCAL
 # ==========================================
 TWILIO_ACCOUNT_SID = st.secrets["TWILIO_ACCOUNT_SID"]
 TWILIO_AUTH_TOKEN = st.secrets["TWILIO_AUTH_TOKEN"]
 TWILIO_WHATSAPP_NUMBER = st.secrets["TWILIO_WHATSAPP_NUMBER"]
 SERPAPI_KEY = st.secrets["SERPAPI_KEY"]
+CHAVE_ACESSO = st.secrets.get("CHAVE_ACESSO_CLIENTES", "ARCA2026") # Puxa a senha do cofre
 
 ARQUIVO_BD = "monitoramentos.json"
+
+# ==========================================
+# SISTEMA DE LOGIN / PAYWALL (COM O SEU LINK STRIPE)
+# ==========================================
+if "autenticado" not in st.session_state:
+    st.session_state["autenticado"] = False
+
+if not st.session_state["autenticado"]:
+    st.title("🔒 Acesso Restrito - Monitor ARCA")
+    st.write("Bem-vindo ao robô inteligente de busca de passagens e hotéis.")
+    
+    with st.container(border=True):
+        st.subheader("Faça seu Login")
+        senha_digitada = st.text_input("Digite sua Chave de Acesso (Licença):", type="password")
+        
+        if st.button("Entrar no Sistema", type="primary", use_container_width=True):
+            if senha_digitada == CHAVE_ACESSO:
+                st.session_state["autenticado"] = True
+                st.rerun() # Recarrega a página liberando o sistema
+            else:
+                st.error("❌ Chave de acesso inválida ou expirada.")
+                
+    st.divider()
+    st.info("💡 **Ainda não tem acesso?** Adquira a sua licença mensal para desbloquear buscas ilimitadas e alertas diários no WhatsApp.")
+    
+    # NOVO: O seu link de pagamento oficial do Stripe está aqui!
+    st.markdown("### [🛒 **Clique aqui para Assinar e Liberar seu Acesso**](https://buy.stripe.com/test_4gM28r8YbgXQ0et0sZaAw00)") 
+    
+    st.stop() # Isto impede que o resto do código abaixo seja lido por quem não pagou!
+
+# Se o código chegou aqui, o utilizador pagou e está autenticado!
+# ==========================================
+# O RESTANTE DO CÓDIGO (INTACTO)
+# ==========================================
 
 AEROPORTOS = {
     "São Paulo (GRU) - Guarulhos": "GRU",
@@ -51,9 +86,6 @@ AEROPORTOS = {
     "Madri, Espanha (MAD)": "MAD"
 }
 
-# ==========================================
-# DICIONÁRIO DE LOGOMARCAS 
-# ==========================================
 LOGOS_CIAS = {
     "LATAM": "https://upload.wikimedia.org/wikipedia/commons/thumb/d/d0/Logo_LATAM.svg/512px-Logo_LATAM.svg.png",
     "GOL": "https://upload.wikimedia.org/wikipedia/commons/thumb/5/52/GOL_Linhas_A%C3%A9reas_Inteligentes_logo.svg/512px-GOL_Linhas_A%C3%A9reas_Inteligentes_logo.svg.png",
@@ -91,32 +123,22 @@ def testar_alerta_whatsapp(numero_destino, mensagem):
     try:
         client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
         destino_formatado = numero_destino if numero_destino.startswith("whatsapp:") else f"whatsapp:{numero_destino}"
-        message = client.messages.create(
-            from_=TWILIO_WHATSAPP_NUMBER,
-            body=mensagem,
-            to=destino_formatado
-        )
+        message = client.messages.create(from_=TWILIO_WHATSAPP_NUMBER, body=mensagem, to=destino_formatado)
         return True, message.sid
     except Exception as e:
         return False, str(e)
 
-# NOVO: Função para validar o horário de voo
 def validar_horario(hora_str, filtro):
-    if filtro == "Qualquer horário" or hora_str == "--:--":
-        return True
+    if filtro == "Qualquer horário" or hora_str == "--:--": return True
     try:
         hora_int = int(hora_str.split(':')[0])
         if filtro == "Madrugada (00h - 06h)" and 0 <= hora_int < 6: return True
         if filtro == "Manhã (06h - 12h)" and 6 <= hora_int < 12: return True
         if filtro == "Tarde (12h - 18h)" and 12 <= hora_int < 18: return True
         if filtro == "Noite (18h - 00h)" and 18 <= hora_int <= 23: return True
-    except:
-        pass
+    except: pass
     return False
 
-# ==========================================
-# FUNÇÕES DE BUSCA DE HOTEIS E VOOS
-# ==========================================
 def buscar_hoteis_google(cidade_hotel, bairros, data_ida_str, data_volta_str, adultos, criancas, idades_criancas, quartos, min_estrelas, min_nota, palavra_chave):
     url = "https://serpapi.com/search.json"
     palavra_chave_real = palavra_chave.strip()
@@ -198,7 +220,6 @@ def buscar_hoteis_google(cidade_hotel, bairros, data_ida_str, data_volta_str, ad
     if len(hoteis_filtrados) == 0: return [{"erro": True, "mensagem": f"NENHUM hotel passou nos seus filtros estritos de Bairro, Nota ou Estrelas."}]
     return hoteis_filtrados
 
-# ATUALIZADO COM OS FILTROS DE HORÁRIO
 def buscar_pacotes_completos(tipo_voo, origem, destino, incluir_hospedagem, cidade_hotel, bairros_hotel, data_ida_str, data_volta_str, adultos, criancas, idades_criancas, quartos, max_duracao, max_escalas, orcamento_max, min_estrelas, min_nota, palavra_chave, filtro_cia, filtro_horario_ida="Qualquer horário", filtro_horario_volta="Qualquer horário"):
     
     lista_hoteis = []
@@ -259,11 +280,9 @@ def buscar_pacotes_completos(tipo_voo, origem, destino, incluir_hospedagem, cida
             if tem_detalhe_volta:
                 if duracao_volta_h > max_duracao or escalas_volta > max_escalas: passou_filtro_volta = False
 
-            # NOVO: Checagem de Horários
             passou_horario_ida = validar_horario(saida_ida, filtro_horario_ida)
             passou_horario_volta = True
-            if tem_detalhe_volta:
-                passou_horario_volta = validar_horario(saida_volta, filtro_horario_volta)
+            if tem_detalhe_volta: passou_horario_volta = validar_horario(saida_volta, filtro_horario_volta)
 
             if (passou_cia and duracao_ida_h <= max_duracao and escalas_ida <= max_escalas and passou_filtro_volta and passou_horario_ida and passou_horario_volta):
                 voos_validos.append({
@@ -457,7 +476,6 @@ with st.expander("⚙️ CONFIGURAR PREMISSAS DA VIAGEM", expanded=True):
     with col3: max_duracao = st.number_input("Duração Máx Voo (hrs)", min_value=1, max_value=40, value=20)
     with col4: filtro_cia = st.text_input("Companhia Aérea", value="", placeholder="Todas as cias aéreas")
     
-    # NOVO: Filtros de Horário na Tela
     col_hora_ida, col_hora_volta = st.columns(2)
     opcoes_horario = ["Qualquer horário", "Madrugada (00h - 06h)", "Manhã (06h - 12h)", "Tarde (12h - 18h)", "Noite (18h - 00h)"]
     with col_hora_ida: filtro_horario_ida = st.selectbox("Preferência: Horário de Ida", opcoes_horario)
