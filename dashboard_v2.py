@@ -49,6 +49,28 @@ AEROPORTOS = {
     "Madri, Espanha (MAD)": "MAD"
 }
 
+# ==========================================
+# DICIONÁRIO DE LOGOMARCAS (NOVO)
+# ==========================================
+LOGOS_CIAS = {
+    "LATAM": "https://upload.wikimedia.org/wikipedia/commons/thumb/d/d0/Logo_LATAM.svg/512px-Logo_LATAM.svg.png",
+    "GOL": "https://upload.wikimedia.org/wikipedia/commons/thumb/5/52/GOL_Linhas_A%C3%A9reas_Inteligentes_logo.svg/512px-GOL_Linhas_A%C3%A9reas_Inteligentes_logo.svg.png",
+    "Azul": "https://upload.wikimedia.org/wikipedia/commons/thumb/z/z0/Azul_Linhas_Aereas_logo.svg/512px-Azul_Linhas_Aereas_logo.svg.png",
+    "Avianca": "https://upload.wikimedia.org/wikipedia/commons/thumb/c/c5/Avianca_logo.svg/512px-Avianca_logo.svg.png",
+    "Copa": "https://upload.wikimedia.org/wikipedia/commons/thumb/1/15/Copa_Airlines_logo.svg/512px-Copa_Airlines_logo.svg.png",
+    "American": "https://upload.wikimedia.org/wikipedia/commons/thumb/f/f6/American_Airlines_logo_2013.svg/512px-American_Airlines_logo_2013.svg.png",
+    "United": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e0/United_Airlines_Logo.svg/512px-United_Airlines_Logo.svg.png",
+    "TAP": "https://upload.wikimedia.org/wikipedia/commons/thumb/f/fa/TAP_Portugal_Logo.svg/512px-TAP_Portugal_Logo.svg.png",
+    "South African": "https://upload.wikimedia.org/wikipedia/commons/thumb/1/16/South_African_Airways_logo.svg/512px-South_African_Airways_logo.svg.png",
+    "Aerolineas": "https://upload.wikimedia.org/wikipedia/commons/thumb/c/c5/Aerolineas_Argentinas_Logo_2010.svg/512px-Aerolineas_Argentinas_Logo_2010.svg.png"
+}
+
+def obter_logo_cia(nome_cia):
+    for chave, url_logo in LOGOS_CIAS.items():
+        if chave.lower() in nome_cia.lower():
+            return url_logo
+    return "https://cdn-icons-png.flaticon.com/512/3125/3125713.png"
+
 def carregar_bd():
     if os.path.exists(ARQUIVO_BD):
         with open(ARQUIVO_BD, "r", encoding="utf-8") as f:
@@ -290,7 +312,8 @@ def buscar_pacotes_completos(tipo_voo, origem, destino, incluir_hospedagem, cida
                     "preco_formatado": formatar_moeda(preco_voo),
                     "link": link_voo_oficial,
                     "cia_ida": cia_ida, "saida_ida": saida_ida, "chegada_ida": chegada_ida, "duracao_ida": round(duracao_ida_h, 1), "escalas_ida": escalas_ida,
-                    "cia_volta": cia_volta, "saida_volta": saida_volta, "chegada_volta": chegada_volta, "duracao_volta": round(duracao_volta_h, 1), "escalas_volta": escalas_volta
+                    "cia_volta": cia_volta, "saida_volta": saida_volta, "chegada_volta": chegada_volta, "duracao_volta": round(duracao_volta_h, 1), "escalas_volta": escalas_volta,
+                    "logo": obter_logo_cia(cia_ida) # NOVO: Adiciona a imagem da companhia
                 })
         
         if not voos_validos:
@@ -625,7 +648,13 @@ if st.button("Buscar Pacotes & Salvar Automação", type="primary", use_containe
                                 st.markdown(f"[🔗 **Ir Direto para o Hotel**]({pct['hotel']['link']})")
                                 
                             with colB:
-                                st.markdown(f"#### ✈️ Voos ({pct['voo']['cia_ida']})")
+                                # NOVO: Aqui o logo aparece ao lado do nome da companhia no Voo+Hotel!
+                                st.markdown(f"""
+                                    <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px;">
+                                        <img src="{pct['voo']['logo']}" width="40" style="border-radius: 4px;">
+                                        <h4 style="margin: 0;">✈️ Voos ({pct['voo']['cia_ida']})</h4>
+                                    </div>
+                                """, unsafe_allow_html=True)
                                 st.write(f"**💰 Passagens Totais:** {pct['voo']['preco_formatado']} *(Pode estar mais barato no site!)*")
                                 st.write(f"🛫 IDA: {pct['voo']['saida_ida']} - {pct['voo']['chegada_ida']}")
                                 if tipo_voo == "Ida e Volta":
@@ -635,7 +664,13 @@ if st.button("Buscar Pacotes & Salvar Automação", type="primary", use_containe
                                         st.write(f"🛬 VOLTA: {pct['voo']['cia_volta']} | {pct['voo']['saida_volta']} - {pct['voo']['chegada_volta']}")
                                 st.markdown(f"[🔗 **Ver Passagens no Google**]({pct['voo']['link']})")
                         else:
-                            st.markdown(f"### ✈️ Passagens Aéreas ({pct['custo_formatado']})")
+                            # NOVO: Aqui o logo aparece bem grande quando busca Apenas Voos!
+                            st.markdown(f"""
+                                <div style="display: flex; align-items: center; gap: 15px; margin-bottom: 10px;">
+                                    <img src="{pct['voo']['logo']}" width="50" style="border-radius: 5px;">
+                                    <h3 style="margin: 0;">✈️ Passagens Aéreas ({pct['custo_formatado']})</h3>
+                                </div>
+                            """, unsafe_allow_html=True)
                             st.write(f"**Cia Aérea:** {pct['voo']['cia_ida']}")
                             st.write(f"🛫 IDA: {pct['voo']['saida_ida']} - {pct['voo']['chegada_ida']} (Escalas: {pct['voo']['escalas_ida']})")
                             if tipo_voo == "Ida e Volta":
