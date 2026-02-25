@@ -9,7 +9,6 @@ import os
 import threading
 import time
 import urllib.parse
-from http.server import BaseHTTPRequestHandler, HTTPServer
 from twilio.rest import Client
 
 st.set_page_config(page_title="Robô de Viagens", layout="wide")
@@ -77,56 +76,33 @@ def testar_alerta_whatsapp(numero_destino, mensagem):
         return False, str(e)
 
 # ==========================================
-# O NOVO "OUVIDO" DO ROBÔ (WEBHOOK)
+# O NOVO "OUVIDO" DO ROBÔ (WEBHOOK NATIVO STREAMLIT)
 # ==========================================
-class WebhookHandler(BaseHTTPRequestHandler):
-    def do_POST(self):
-        try:
-            content_length = int(self.headers['Content-Length'])
-            post_data = self.rfile.read(content_length).decode('utf-8')
-            dados = urllib.parse.parse_qs(post_data)
-            
-            msg = dados.get('Body', [''])[0].strip().lower()
-            remetente = dados.get('From', [''])[0]
-            
-            # Se o cliente responder SIM + CÓDIGO
-            if msg.startswith("sim "):
-                codigo = msg.replace("sim ", "").strip().upper()
-                bd = carregar_bd()
-                if codigo in bd:
-                    bd[codigo]["monitorar"] = True
-                    salvar_bd(bd)
-                    testar_alerta_whatsapp(remetente, f"✅ *Feito!* Orçamento `{codigo}` ativado com sucesso pelo WhatsApp. Avisarei às {bd[codigo]['horario']} sobre os preços novos.")
-                else:
-                    testar_alerta_whatsapp(remetente, f"⚠️ Não encontrei o código `{codigo}`. Verifique se digitou corretamente.")
-            
-            # Se o cliente responder NÃO + CÓDIGO
-            elif msg.startswith("não ") or msg.startswith("nao "):
-                codigo = msg.replace("não ", "").replace("nao ", "").strip().upper()
-                bd = carregar_bd()
-                if codigo in bd:
-                    bd[codigo]["monitorar"] = False
-                    salvar_bd(bd)
-                    testar_alerta_whatsapp(remetente, f"🛑 *Pausado!* Você não receberá mais atualizações automáticas do orçamento `{codigo}`.")
-            
-            self.send_response(200)
-            self.end_headers()
-            self.wfile.write(b"OK")
-        except Exception:
-            self.send_response(500)
-            self.end_headers()
-
-    def log_message(self, format, *args):
-        pass # Silencia o terminal para não sujar a tela
-
-def iniciar_ouvidos():
-    server = HTTPServer(('0.0.0.0', 5000), WebhookHandler)
-    server.serve_forever()
-
-if 'webhook_iniciado' not in st.session_state:
-    t_web = threading.Thread(target=iniciar_ouvidos, daemon=True)
-    t_web.start()
-    st.session_state.webhook_iniciado = True
+parametros = st.query_params
+if "Body" in parametros and "From" in parametros:
+    msg = parametros.get("Body", "").strip().lower()
+    remetente = parametros.get("From", "")
+    
+    if msg.startswith("sim "):
+        codigo = msg.replace("sim ", "").strip().upper()
+        bd = carregar_bd()
+        if codigo in bd:
+            bd[codigo]["monitorar"] = True
+            salvar_bd(bd)
+            testar_alerta_whatsapp(remetente, f"✅ *Feito!* Orçamento `{codigo}` ativado com sucesso pelo WhatsApp. Avisarei às {bd[codigo]['horario']} sobre os preços novos.")
+        else:
+            testar_alerta_whatsapp(remetente, f"⚠️ Não encontrei o código `{codigo}`. Verifique se digitou corretamente.")
+    
+    elif msg.startswith("não ") or msg.startswith("nao "):
+        codigo = msg.replace("não ", "").replace("nao ", "").strip().upper()
+        bd = carregar_bd()
+        if codigo in bd:
+            bd[codigo]["monitorar"] = False
+            salvar_bd(bd)
+            testar_alerta_whatsapp(remetente, f"🛑 *Pausado!* Você não receberá mais atualizações automáticas do orçamento `{codigo}`.")
+    
+    # Interrompe a criação da tela visual, pois o robô do Twilio não precisa ver o aplicativo, só ativar a regra
+    st.stop()
 
 # ==========================================
 # FUNÇÕES DE BUSCA DE HOTEIS E VOOS
@@ -450,10 +426,13 @@ def loop_vigilante():
         except Exception as e: pass
         time.sleep(30)
 
-if 'motor_iniciado' not in st.session_state:
+@st.cache_resource
+def iniciar_motor_fundo():
     t = threading.Thread(target=loop_vigilante, daemon=True)
     t.start()
-    st.session_state.motor_iniciado = True
+    return True
+
+iniciar_motor_fundo()
 
 # ==========================================
 # BARRA LATERAL E INTERFACE PRINCIPAL
@@ -471,7 +450,7 @@ with st.sidebar.expander("📂 Consultar Orçamentos Salvos"):
             st.divider()
 
 with st.sidebar.expander("📲 Resposta do Cliente / Ativação"):
-    st.write("A ativação agora pode ser feita enviando SIM + CÓDIGO direto pelo WhatsApp, mas você ainda pode forçar por aqui.")
+    st.write("A ativação agora é feita 100% pelo WhatsApp, mas você pode forçar por aqui se precisar.")
     codigo_simulacao = st.text_input("Código do Orçamento (ex: A1B2C3)")
     resposta_simulacao = st.selectbox("Ação", ["ATIVAR (Recebeu SIM)", "CANCELAR (Recebeu NÃO)"])
     if st.button("Aplicar Ação", use_container_width=True):
