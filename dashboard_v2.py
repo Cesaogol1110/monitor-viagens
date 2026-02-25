@@ -35,6 +35,8 @@ AEROPORTOS = {
     "Recife (REC) - Guararapes": "REC",
     "Fortaleza (FOR) - Pinto Martins": "FOR",
     "Cancun, México (CUN)": "CUN",
+    "Cape Town, África do Sul (CPT)": "CPT",
+    "Joanesburgo, África do Sul (JNB)": "JNB",
     "Buenos Aires, Arg (EZE) - Ezeiza": "EZE",
     "Buenos Aires, Arg (AEP) - Aeroparque": "AEP",
     "Santiago, Chile (SCL)": "SCL",
@@ -50,7 +52,7 @@ AEROPORTOS = {
 }
 
 # ==========================================
-# DICIONÁRIO DE LOGOMARCAS (NOVO)
+# DICIONÁRIO DE LOGOMARCAS 
 # ==========================================
 LOGOS_CIAS = {
     "LATAM": "https://upload.wikimedia.org/wikipedia/commons/thumb/d/d0/Logo_LATAM.svg/512px-Logo_LATAM.svg.png",
@@ -62,7 +64,8 @@ LOGOS_CIAS = {
     "United": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e0/United_Airlines_Logo.svg/512px-United_Airlines_Logo.svg.png",
     "TAP": "https://upload.wikimedia.org/wikipedia/commons/thumb/f/fa/TAP_Portugal_Logo.svg/512px-TAP_Portugal_Logo.svg.png",
     "South African": "https://upload.wikimedia.org/wikipedia/commons/thumb/1/16/South_African_Airways_logo.svg/512px-South_African_Airways_logo.svg.png",
-    "Aerolineas": "https://upload.wikimedia.org/wikipedia/commons/thumb/c/c5/Aerolineas_Argentinas_Logo_2010.svg/512px-Aerolineas_Argentinas_Logo_2010.svg.png"
+    "Aerolineas": "https://upload.wikimedia.org/wikipedia/commons/thumb/c/c5/Aerolineas_Argentinas_Logo_2010.svg/512px-Aerolineas_Argentinas_Logo_2010.svg.png",
+    "Arajet": "https://upload.wikimedia.org/wikipedia/commons/thumb/8/87/Arajet_Logo.png/512px-Arajet_Logo.png"
 }
 
 def obter_logo_cia(nome_cia):
@@ -97,82 +100,65 @@ def testar_alerta_whatsapp(numero_destino, mensagem):
     except Exception as e:
         return False, str(e)
 
+# NOVO: Função para validar o horário de voo
+def validar_horario(hora_str, filtro):
+    if filtro == "Qualquer horário" or hora_str == "--:--":
+        return True
+    try:
+        hora_int = int(hora_str.split(':')[0])
+        if filtro == "Madrugada (00h - 06h)" and 0 <= hora_int < 6: return True
+        if filtro == "Manhã (06h - 12h)" and 6 <= hora_int < 12: return True
+        if filtro == "Tarde (12h - 18h)" and 12 <= hora_int < 18: return True
+        if filtro == "Noite (18h - 00h)" and 18 <= hora_int <= 23: return True
+    except:
+        pass
+    return False
+
 # ==========================================
 # FUNÇÕES DE BUSCA DE HOTEIS E VOOS
 # ==========================================
 def buscar_hoteis_google(cidade_hotel, bairros, data_ida_str, data_volta_str, adultos, criancas, idades_criancas, quartos, min_estrelas, min_nota, palavra_chave):
     url = "https://serpapi.com/search.json"
-    
     palavra_chave_real = palavra_chave.strip()
     bairros_real = bairros.strip()
     cidade_limpa = cidade_hotel.split("(")[0].strip()
     
-    if bairros_real:
-        local_busca = f"{bairros_real}, {cidade_limpa}"
-    else:
-        local_busca = cidade_limpa
+    if bairros_real: local_busca = f"{bairros_real}, {cidade_limpa}"
+    else: local_busca = cidade_limpa
         
     pedacos_busca = []
     if palavra_chave_real: pedacos_busca.append(palavra_chave_real)
     if quartos > 1: pedacos_busca.append(f"{quartos} quartos")
     pedacos_busca.append(local_busca)
-    
     termo_busca = " ".join(pedacos_busca).strip()
     
     hoteis_brutos = []
     next_page_token = None
     
     for pagina in range(4):
-        params = {
-            "engine": "google_hotels",
-            "q": termo_busca,
-            "check_in_date": data_ida_str,
-            "check_out_date": data_volta_str,
-            "adults": adultos,
-            "currency": "BRL",
-            "hl": "pt-br", 
-            "gl": "br", 
-            "api_key": SERPAPI_KEY
-        }
-        
+        params = {"engine": "google_hotels", "q": termo_busca, "check_in_date": data_ida_str, "check_out_date": data_volta_str, "adults": adultos, "currency": "BRL", "hl": "pt-br", "gl": "br", "api_key": SERPAPI_KEY}
         if criancas > 0:
             params["children"] = criancas
-            if idades_criancas:
-                params["children_ages"] = ",".join(str(idade) for idade in idades_criancas)
-                
-        if next_page_token:
-            params["next_page_token"] = next_page_token
+            if idades_criancas: params["children_ages"] = ",".join(str(idade) for idade in idades_criancas)
+        if next_page_token: params["next_page_token"] = next_page_token
                 
         try:
             response = requests.get(url, params=params)
             dados = response.json()
-            
-            if "error" in dados and pagina == 0:
-                return [{"erro": True, "mensagem": f"O Google Hotels recusou a busca: {dados['error']}"}]
-                
+            if "error" in dados and pagina == 0: return [{"erro": True, "mensagem": f"O Google Hotels recusou a busca: {dados['error']}"}]
             hoteis_pagina = dados.get("properties", [])
-            
-            if not hoteis_pagina:
-                break
-                
+            if not hoteis_pagina: break
             hoteis_brutos.extend(hoteis_pagina)
-            
             serpapi_pagination = dados.get("serpapi_pagination", {})
             next_page_token = serpapi_pagination.get("next_page_token")
-            
-            if len(hoteis_brutos) >= 100 or not next_page_token:
-                break
-                
+            if len(hoteis_brutos) >= 100 or not next_page_token: break
         except Exception as e:
-            if pagina == 0:
-                return [{"erro": True, "mensagem": f"Falha na conexão de hotéis: {str(e)}"}]
+            if pagina == 0: return [{"erro": True, "mensagem": f"Falha na conexão de hotéis: {str(e)}"}]
             break 
 
-    if not hoteis_brutos:
-        return [{"erro": True, "mensagem": f"O Google não encontrou propriedades para a busca: '{termo_busca}'."}]
+    if not hoteis_brutos: return [{"erro": True, "mensagem": f"O Google não encontrou propriedades para a busca: '{termo_busca}'."}]
     
     hoteis_filtrados = []
-    
     for h in hoteis_brutos:
         nome = h.get("name", "Hotel Desconhecido")
         nota = round(h.get("overall_rating", 0.0), 1)
@@ -186,12 +172,10 @@ def buscar_hoteis_google(cidade_hotel, bairros, data_ida_str, data_volta_str, ad
                 if bp in texto_para_validar:
                     passou_cerca = True
                     break
-            if not passou_cerca:
-                continue 
+            if not passou_cerca: continue 
 
         classe_str = str(h.get("hotel_class", "0"))
         estrelas = int(''.join(filter(str.isdigit, classe_str))) if any(c.isdigit() for c in classe_str) else 0
-        
         rate_info = h.get("total_rate", {}) or h.get("rate_per_night", {})
         preco_total = rate_info.get("extracted_lowest", 0)
         
@@ -204,53 +188,29 @@ def buscar_hoteis_google(cidade_hotel, bairros, data_ida_str, data_volta_str, ad
         if "travel/search" in link_original or not link_original:
             termo_link = urllib.parse.quote_plus(f"{nome} {local_busca}")
             link_direto = f"https://www.google.com/search?q={termo_link}"
-        else:
-            link_direto = link_original
+        else: link_direto = link_original
         
         if nota >= min_nota and preco_total > 0:
             if estrelas >= min_estrelas or estrelas == 0:
-                hoteis_filtrados.append({
-                    "nome": nome,
-                    "bairro": bairro_oficial if bairro_oficial else (bairros_real if bairros_real else cidade_limpa),
-                    "estrelas": estrelas if estrelas > 0 else "N/A",
-                    "nota": nota,
-                    "preco_total": preco_total,
-                    "preco_formatado": formatar_moeda(preco_total),
-                    "link": link_direto
-                })
+                hoteis_filtrados.append({"nome": nome, "bairro": bairro_oficial if bairro_oficial else (bairros_real if bairros_real else cidade_limpa), "estrelas": estrelas if estrelas > 0 else "N/A", "nota": nota, "preco_total": preco_total, "preco_formatado": formatar_moeda(preco_total), "link": link_direto})
     
     hoteis_filtrados = sorted(hoteis_filtrados, key=lambda x: x["preco_total"])
-    if len(hoteis_filtrados) == 0:
-        return [{"erro": True, "mensagem": f"O Google achou opções nas dezenas de hotéis mapeados, mas NENHUMA passou nos seus filtros estritos de Bairro, Nota ou Estrelas."}]
-        
+    if len(hoteis_filtrados) == 0: return [{"erro": True, "mensagem": f"NENHUM hotel passou nos seus filtros estritos de Bairro, Nota ou Estrelas."}]
     return hoteis_filtrados
 
-def buscar_pacotes_completos(tipo_voo, origem, destino, incluir_hospedagem, cidade_hotel, bairros_hotel, data_ida_str, data_volta_str, adultos, criancas, idades_criancas, quartos, max_duracao, max_escalas, orcamento_max, min_estrelas, min_nota, palavra_chave, filtro_cia):
+# ATUALIZADO COM OS FILTROS DE HORÁRIO
+def buscar_pacotes_completos(tipo_voo, origem, destino, incluir_hospedagem, cidade_hotel, bairros_hotel, data_ida_str, data_volta_str, adultos, criancas, idades_criancas, quartos, max_duracao, max_escalas, orcamento_max, min_estrelas, min_nota, palavra_chave, filtro_cia, filtro_horario_ida="Qualquer horário", filtro_horario_volta="Qualquer horário"):
     
     lista_hoteis = []
     if incluir_hospedagem:
         lista_hoteis = buscar_hoteis_google(cidade_hotel, bairros_hotel, data_ida_str, data_volta_str, adultos, criancas, idades_criancas, quartos, min_estrelas, min_nota, palavra_chave)
-        if len(lista_hoteis) > 0 and "erro" in lista_hoteis[0]:
-            return {"status": "erro", "mensagem": lista_hoteis[0]["mensagem"]}
+        if len(lista_hoteis) > 0 and "erro" in lista_hoteis[0]: return {"status": "erro", "mensagem": lista_hoteis[0]["mensagem"]}
 
     url = "https://serpapi.com/search.json"
-    
     total_passageiros = adultos + criancas
+    params = {"engine": "google_flights", "departure_id": origem, "arrival_id": destino, "outbound_date": data_ida_str, "currency": "BRL", "hl": "pt-br", "gl": "br", "api_key": SERPAPI_KEY, "adults": total_passageiros}
     
-    params = {
-        "engine": "google_flights",
-        "departure_id": origem,
-        "arrival_id": destino,
-        "outbound_date": data_ida_str,
-        "currency": "BRL",
-        "hl": "pt-br", 
-        "gl": "br", 
-        "api_key": SERPAPI_KEY,
-        "adults": total_passageiros 
-    }
-    
-    if tipo_voo == "Somente Ida": 
-        params["type"] = "2"
+    if tipo_voo == "Somente Ida": params["type"] = "2"
     else:
         params["type"] = "1"
         params["return_date"] = data_volta_str
@@ -258,23 +218,18 @@ def buscar_pacotes_completos(tipo_voo, origem, destino, incluir_hospedagem, cida
     try:
         response = requests.get(url, params=params)
         dados = response.json()
-        
         link_voo_oficial = dados.get("search_metadata", {}).get("google_flights_url", "")
-        if not link_voo_oficial:
-            link_voo_oficial = f"https://www.google.com/travel/flights?q=Flights%20from%20{origem}%20to%20{destino}"
+        if not link_voo_oficial: link_voo_oficial = f"https://www.google.com/travel/flights?q=Flights%20from%20{origem}%20to%20{destino}"
             
         todos_voos_brutos = dados.get("best_flights", []) + dados.get("other_flights", [])
-        
-        if not todos_voos_brutos:
-            return {"status": "erro", "mensagem": f"O Google Flights não retornou nenhum voo para a rota {origem} ➔ {destino} nestas datas."}
+        if not todos_voos_brutos: return {"status": "erro", "mensagem": f"Nenhum voo para a rota {origem} ➔ {destino} nestas datas."}
         
         voos_validos = []
-        
         for v in todos_voos_brutos:
             preco_voo = v.get("price", 0) 
-            
             trecho_ida = v.get("flights", [])
             if not trecho_ida: continue
+            
             duracao_ida_h = sum([seg.get("duration", 0) for seg in trecho_ida]) / 60
             escalas_ida = len(trecho_ida) - 1
             cia_ida = trecho_ida[0].get("airline", "N/A")
@@ -298,66 +253,53 @@ def buscar_pacotes_completos(tipo_voo, origem, destino, incluir_hospedagem, cida
             passou_cia = True
             if filtro_cia.strip():
                 filtro = filtro_cia.strip().lower()
-                if filtro not in cia_ida.lower() and filtro not in cia_volta.lower():
-                    passou_cia = False
+                if filtro not in cia_ida.lower() and filtro not in cia_volta.lower(): passou_cia = False
             
             passou_filtro_volta = True
             if tem_detalhe_volta:
-                if duracao_volta_h > max_duracao or escalas_volta > max_escalas:
-                    passou_filtro_volta = False
+                if duracao_volta_h > max_duracao or escalas_volta > max_escalas: passou_filtro_volta = False
 
-            if (passou_cia and duracao_ida_h <= max_duracao and escalas_ida <= max_escalas and passou_filtro_volta):
+            # NOVO: Checagem de Horários
+            passou_horario_ida = validar_horario(saida_ida, filtro_horario_ida)
+            passou_horario_volta = True
+            if tem_detalhe_volta:
+                passou_horario_volta = validar_horario(saida_volta, filtro_horario_volta)
+
+            if (passou_cia and duracao_ida_h <= max_duracao and escalas_ida <= max_escalas and passou_filtro_volta and passou_horario_ida and passou_horario_volta):
                 voos_validos.append({
-                    "preco_voo": preco_voo,
-                    "preco_formatado": formatar_moeda(preco_voo),
-                    "link": link_voo_oficial,
+                    "preco_voo": preco_voo, "preco_formatado": formatar_moeda(preco_voo), "link": link_voo_oficial,
                     "cia_ida": cia_ida, "saida_ida": saida_ida, "chegada_ida": chegada_ida, "duracao_ida": round(duracao_ida_h, 1), "escalas_ida": escalas_ida,
                     "cia_volta": cia_volta, "saida_volta": saida_volta, "chegada_volta": chegada_volta, "duracao_volta": round(duracao_volta_h, 1), "escalas_volta": escalas_volta,
-                    "logo": obter_logo_cia(cia_ida) # NOVO: Adiciona a imagem da companhia
+                    "logo": obter_logo_cia(cia_ida)
                 })
         
-        if not voos_validos:
-            return {"status": "erro", "mensagem": "Nenhum voo atendeu aos seus filtros de duração, escalas ou Cia Aérea."}
+        if not voos_validos: return {"status": "erro", "mensagem": "Nenhum voo atendeu aos seus filtros de duração, escalas, CIA ou HORÁRIO."}
             
         voos_validos = sorted(voos_validos, key=lambda x: x["preco_voo"])
-        
         pacotes_filtrados = []
         
         if incluir_hospedagem:
             voo_campeao = voos_validos[0]
             menor_custo_absoluto = voo_campeao["preco_voo"] + lista_hoteis[0]["preco_total"]
             if menor_custo_absoluto > orcamento_max:
-                msg_erro = f" Achamos opções profundas no Google, mas a mais barata estourou o limite: **{formatar_moeda(menor_custo_absoluto)}** (Voos: {formatar_moeda(voo_campeao['preco_voo'])} + Hotel: {formatar_moeda(lista_hoteis[0]['preco_total'])})."
-                return {"status": "erro", "mensagem": msg_erro}
+                return {"status": "erro", "mensagem": f"A opção mais barata estourou o limite: **{formatar_moeda(menor_custo_absoluto)}**."}
 
             for h in lista_hoteis:
                 custo_total = h["preco_total"] + voo_campeao["preco_voo"]
                 if custo_total <= orcamento_max:
-                    pacotes_filtrados.append({
-                        "custo_total": custo_total,
-                        "custo_formatado": formatar_moeda(custo_total),
-                        "hotel": h,
-                        "voo": voo_campeao
-                    })
+                    pacotes_filtrados.append({"custo_total": custo_total, "custo_formatado": formatar_moeda(custo_total), "hotel": h, "voo": voo_campeao})
         else:
             if voos_validos[0]["preco_voo"] > orcamento_max:
-                msg_erro = f" Achamos opções de voo, mas a mais barata estourou o limite: **{formatar_moeda(voos_validos[0]['preco_voo'])}**."
-                return {"status": "erro", "mensagem": msg_erro}
+                return {"status": "erro", "mensagem": f"A opção de voo mais barata estourou o limite: **{formatar_moeda(voos_validos[0]['preco_voo'])}**."}
                 
             for v in voos_validos[:15]: 
                 if v["preco_voo"] <= orcamento_max:
-                    pacotes_filtrados.append({
-                        "custo_total": v["preco_voo"],
-                        "custo_formatado": formatar_moeda(v["preco_voo"]),
-                        "hotel": None,
-                        "voo": v
-                    })
+                    pacotes_filtrados.append({"custo_total": v["preco_voo"], "custo_formatado": formatar_moeda(v["preco_voo"]), "hotel": None, "voo": v})
                     
         pacotes_filtrados = sorted(pacotes_filtrados, key=lambda x: x["custo_total"])
         return {"status": "sucesso", "pacotes": pacotes_filtrados}
             
-    except Exception as e:
-        return {"status": "erro", "mensagem": f"Falha na comunicação: {str(e)}"}
+    except Exception as e: return {"status": "erro", "mensagem": f"Falha na comunicação: {str(e)}"}
 
 # ==========================================
 # MOTOR DE FUNDO (BACKGROUND THREAD)
@@ -380,7 +322,8 @@ def loop_vigilante():
                             info["tipo_voo"], info["origem"], info["destino"], info.get("incluir_hospedagem", True),
                             info.get("cidade_hotel", info["destino"]), info.get("bairros_hotel", ""), 
                             info["data_ida"], info["data_volta"], info["adultos"], info["criancas"], info.get("idades_criancas", []), info.get("quartos", 1), info["max_duracao"], info["max_escalas"], 
-                            info["orcamento_max"], info.get("min_estrelas", 3), info.get("min_nota", 4.0), info.get("palavra_chave", ""), info.get("filtro_cia", "")
+                            info["orcamento_max"], info.get("min_estrelas", 3), info.get("min_nota", 4.0), info.get("palavra_chave", ""), info.get("filtro_cia", ""),
+                            info.get("filtro_horario_ida", "Qualquer horário"), info.get("filtro_horario_volta", "Qualquer horário")
                         )
                         
                         if res["status"] == "sucesso" and len(res["pacotes"]) > 0:
@@ -513,6 +456,13 @@ with st.expander("⚙️ CONFIGURAR PREMISSAS DA VIAGEM", expanded=True):
     with col2: max_escalas = st.number_input("Máximo de Escalas", min_value=0, max_value=5, value=1)
     with col3: max_duracao = st.number_input("Duração Máx Voo (hrs)", min_value=1, max_value=40, value=20)
     with col4: filtro_cia = st.text_input("Companhia Aérea", value="", placeholder="Todas as cias aéreas")
+    
+    # NOVO: Filtros de Horário na Tela
+    col_hora_ida, col_hora_volta = st.columns(2)
+    opcoes_horario = ["Qualquer horário", "Madrugada (00h - 06h)", "Manhã (06h - 12h)", "Tarde (12h - 18h)", "Noite (18h - 00h)"]
+    with col_hora_ida: filtro_horario_ida = st.selectbox("Preferência: Horário de Ida", opcoes_horario)
+    with col_hora_volta: 
+        filtro_horario_volta = st.selectbox("Preferência: Horário de Volta", opcoes_horario, disabled=(tipo_voo != "Ida e Volta"))
     st.divider()
     
     if incluir_hospedagem:
@@ -574,7 +524,7 @@ if st.button("Buscar Pacotes & Salvar Automação", type="primary", use_containe
             
             resultado = buscar_pacotes_completos(
                 tipo_voo, origem, destino, incluir_hospedagem, cidade_hotel, bairros_hotel, data_ida_str, data_volta_str, adultos, criancas, idades_criancas, quartos,
-                max_duracao, max_escalas, orcamento_max, min_estrelas, min_nota, palavra_chave, filtro_cia
+                max_duracao, max_escalas, orcamento_max, min_estrelas, min_nota, palavra_chave, filtro_cia, filtro_horario_ida, filtro_horario_volta
             )
             
             if resultado["status"] == "sucesso":
@@ -587,7 +537,8 @@ if st.button("Buscar Pacotes & Salvar Automação", type="primary", use_containe
                     "origem": origem, "destino": destino, "incluir_hospedagem": incluir_hospedagem, "cidade_hotel": cidade_hotel, "bairros_hotel": bairros_hotel,
                     "tipo_voo": tipo_voo, "data_ida": data_ida_str, "data_volta": data_volta_str,
                     "adultos": adultos, "criancas": criancas, "idades_criancas": idades_criancas, "quartos": quartos, "max_duracao": max_duracao, "max_escalas": max_escalas,
-                    "orcamento_max": orcamento_max, "min_estrelas": min_estrelas, "min_nota": min_nota, "palavra_chave": palavra_chave, "filtro_cia": filtro_cia
+                    "orcamento_max": orcamento_max, "min_estrelas": min_estrelas, "min_nota": min_nota, "palavra_chave": palavra_chave, "filtro_cia": filtro_cia,
+                    "filtro_horario_ida": filtro_horario_ida, "filtro_horario_volta": filtro_horario_volta
                 }
                 salvar_bd(bd_atual)
                 
@@ -648,7 +599,6 @@ if st.button("Buscar Pacotes & Salvar Automação", type="primary", use_containe
                                 st.markdown(f"[🔗 **Ir Direto para o Hotel**]({pct['hotel']['link']})")
                                 
                             with colB:
-                                # NOVO: Aqui o logo aparece ao lado do nome da companhia no Voo+Hotel!
                                 st.markdown(f"""
                                     <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px;">
                                         <img src="{pct['voo']['logo']}" width="40" style="border-radius: 4px;">
@@ -664,7 +614,6 @@ if st.button("Buscar Pacotes & Salvar Automação", type="primary", use_containe
                                         st.write(f"🛬 VOLTA: {pct['voo']['cia_volta']} | {pct['voo']['saida_volta']} - {pct['voo']['chegada_volta']}")
                                 st.markdown(f"[🔗 **Ver Passagens no Google**]({pct['voo']['link']})")
                         else:
-                            # NOVO: Aqui o logo aparece bem grande quando busca Apenas Voos!
                             st.markdown(f"""
                                 <div style="display: flex; align-items: center; gap: 15px; margin-bottom: 10px;">
                                     <img src="{pct['voo']['logo']}" width="50" style="border-radius: 5px;">
