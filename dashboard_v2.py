@@ -14,46 +14,93 @@ from twilio.rest import Client
 st.set_page_config(page_title="Robô de Viagens", layout="wide")
 
 # ==========================================
-# CONFIGURAÇÕES E BANCO DE DADOS LOCAL
+# CONFIGURAÇÕES E BANCOS DE DADOS LOCAIS
 # ==========================================
 TWILIO_ACCOUNT_SID = st.secrets["TWILIO_ACCOUNT_SID"]
 TWILIO_AUTH_TOKEN = st.secrets["TWILIO_AUTH_TOKEN"]
 TWILIO_WHATSAPP_NUMBER = st.secrets["TWILIO_WHATSAPP_NUMBER"]
 SERPAPI_KEY = st.secrets["SERPAPI_KEY"]
-CHAVE_ACESSO = st.secrets.get("CHAVE_ACESSO_CLIENTES", "ARCA2026") # Puxa a senha do cofre
+
+# A chave do Stripe agora é apenas um VOUCHER de ativação
+CHAVE_ATIVACAO_STRIPE = st.secrets.get("CHAVE_ACESSO_CLIENTES", "123452026") 
 
 ARQUIVO_BD = "monitoramentos.json"
+ARQUIVO_USUARIOS = "usuarios.json" # NOVO: Banco de dados de clientes
+
+# Funções de Banco de Dados de Usuários
+def carregar_usuarios():
+    if os.path.exists(ARQUIVO_USUARIOS):
+        with open(ARQUIVO_USUARIOS, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return {}
+
+def salvar_usuarios(dados):
+    with open(ARQUIVO_USUARIOS, "w", encoding="utf-8") as f:
+        json.dump(dados, f, indent=4, ensure_ascii=False)
 
 # ==========================================
-# SISTEMA DE LOGIN / PAYWALL (COM O SEU LINK STRIPE)
+# SISTEMA DE LOGIN INDIVIDUAL (NOVO)
 # ==========================================
 if "autenticado" not in st.session_state:
     st.session_state["autenticado"] = False
+    st.session_state["usuario_logado"] = None
 
 if not st.session_state["autenticado"]:
     st.title("🔒 Acesso Restrito - Monitor ARCA")
     st.write("Bem-vindo ao robô inteligente de busca de passagens e hotéis.")
     
     with st.container(border=True):
-        st.subheader("Faça seu Login")
-        senha_digitada = st.text_input("Digite sua Chave de Acesso (Licença):", type="password")
+        aba_login, aba_cadastro = st.tabs(["🔐 Fazer Login", "🆕 Primeiro Acesso (Ativar Conta)"])
         
-        if st.button("Entrar no Sistema", type="primary", use_container_width=True):
-            if senha_digitada == CHAVE_ACESSO:
-                st.session_state["autenticado"] = True
-                st.rerun() # Recarrega a página liberando o sistema
-            else:
-                st.error("❌ Chave de acesso inválida ou expirada.")
+        # ABA 1: LOGIN PARA CLIENTES EXISTENTES
+        with aba_login:
+            st.subheader("Já tenho uma conta")
+            tel_login = st.text_input("Seu Telefone (Login):", placeholder="Ex: 11999999999", key="login_tel")
+            senha_login = st.text_input("Sua Senha:", type="password", key="login_senha")
+            
+            if st.button("Entrar", type="primary", use_container_width=True):
+                usuarios = carregar_usuarios()
+                if tel_login in usuarios and usuarios[tel_login]["senha"] == senha_login:
+                    st.session_state["autenticado"] = True
+                    st.session_state["usuario_logado"] = tel_login
+                    st.rerun()
+                else:
+                    st.error("❌ Telefone ou senha incorretos.")
+                    
+        # ABA 2: CADASTRO COM O VOUCHER DO STRIPE
+        with aba_cadastro:
+            st.subheader("Ativar minha assinatura")
+            st.write("Insira o código recebido após o pagamento para criar seu login.")
+            
+            codigo_ativacao = st.text_input("Código de Ativação (Recebido no Stripe):", type="password")
+            st.divider()
+            novo_tel = st.text_input("Crie seu Login (Seu Telefone com DDD):", placeholder="Ex: 11999999999")
+            nova_senha = st.text_input("Crie uma Senha Pessoal:", type="password")
+            
+            if st.button("Criar Conta e Entrar", type="primary", use_container_width=True):
+                if codigo_ativacao != CHAVE_ATIVACAO_STRIPE:
+                    st.error("❌ Código de ativação inválido ou expirado.")
+                elif not novo_tel or not nova_senha:
+                    st.warning("⚠️ Preencha o telefone e a senha desejada.")
+                else:
+                    usuarios = carregar_usuarios()
+                    if novo_tel in usuarios:
+                        st.warning("⚠️ Este telefone já possui conta. Por favor, faça o login na aba ao lado.")
+                    else:
+                        usuarios[novo_tel] = {"senha": nova_senha, "data_cadastro": str(datetime.date.today())}
+                        salvar_usuarios(usuarios)
+                        st.success("✅ Conta criada com sucesso! Redirecionando...")
+                        st.session_state["autenticado"] = True
+                        st.session_state["usuario_logado"] = novo_tel
+                        time.sleep(1)
+                        st.rerun()
                 
     st.divider()
-    st.info("💡 **Ainda não tem acesso?** Adquira a sua licença mensal para desbloquear buscas ilimitadas e alertas diários no WhatsApp.")
-    
-    # NOVO: O seu link de pagamento oficial do Stripe está aqui!
+    st.info("💡 **Ainda não tem acesso?** Adquira a sua licença mensal para desbloquear buscas ilimitadas.")
     st.markdown("### [🛒 **Clique aqui para Assinar e Liberar seu Acesso**](https://buy.stripe.com/test_4gM28r8YbgXQ0et0sZaAw00)") 
     
-    st.stop() # Isto impede que o resto do código abaixo seja lido por quem não pagou!
+    st.stop() # Bloqueia o app aqui se não logar!
 
-# Se o código chegou aqui, o utilizador pagou e está autenticado!
 # ==========================================
 # O RESTANTE DO CÓDIGO (INTACTO)
 # ==========================================
@@ -393,7 +440,15 @@ iniciar_motor_fundo()
 # ==========================================
 # BARRA LATERAL E INTERFACE PRINCIPAL
 # ==========================================
-st.sidebar.title("🤖 Painel do Robô Automático")
+st.sidebar.title("🤖 Painel do Robô")
+
+# NOVO: Botão de Logout na Barra Lateral
+st.sidebar.write(f"👤 Usuário: **{st.session_state['usuario_logado']}**")
+if st.sidebar.button("🚪 Sair (Logout)", use_container_width=True):
+    st.session_state["autenticado"] = False
+    st.session_state["usuario_logado"] = None
+    st.rerun()
+st.sidebar.divider()
 
 bd_atual = carregar_bd()
 with st.sidebar.expander("📂 Consultar Orçamentos Salvos"):
@@ -520,7 +575,7 @@ with st.expander("⚙️ CONFIGURAR PREMISSAS DA VIAGEM", expanded=True):
     with col7:
         st.subheader("📱 Alerta Automático")
         colZ1, colZ2 = st.columns(2)
-        with colZ1: seu_numero = st.text_input("WhatsApp (ex: +5511999999999)")
+        with colZ1: seu_numero = st.text_input("WhatsApp (ex: +5511999999999)", value=st.session_state.get("usuario_logado", ""))
         with colZ2: horario_alerta = st.time_input("Horário Diário", datetime.time(18, 0))
 
 st.divider()
