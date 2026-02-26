@@ -1,4 +1,4 @@
-# código final 20/01/2026
+# código final 26/02/2026 - CORREÇÃO DO PARÂMETRO DE BUSCA
 # dashboard_v2.py
 import streamlit as st
 import datetime
@@ -93,7 +93,6 @@ def buscar_pacotes_completos(origem, destino, ida, volta, adt, cri, idades, orc_
     try:
         res = requests.get(url, params=params).json()
         
-        # RAIO-X: Erros da SerpApi para Voos
         if "error" in res:
             st.error(f"🚫 Erro da SerpApi (Voos): {res['error']}")
             return []
@@ -125,17 +124,17 @@ def buscar_pacotes_completos(origem, destino, ida, volta, adt, cri, idades, orc_
 # ==========================================
 def buscar_produtos_google(metodo, produto_base, marca, termos_excluir, link_produto, orcamento):
     try:
-        # Domínio explícito para forçar o Shopping Brasil
         params = {"hl": "pt-br", "gl": "br", "google_domain": "google.com.br", "currency": "BRL", "api_key": SERPAPI_KEY}
         
-        if metodo == "Filtros":
+        # AQUI FOI CORRIGIDA A FALHA DE COMUNICAÇÃO DO NOME DO BOTÃO
+        if "Filtros" in metodo: 
             query = f"{produto_base}"
             if marca: query += f" {marca}"
             if termos_excluir:
                 exclusoes = " ".join([f"-{t.strip()}" for t in termos_excluir.split(",") if t.strip()])
                 query += f" {exclusoes}"
             params["engine"] = "google_shopping"
-            params["q"] = query
+            params["q"] = query.strip()
         else:
             match = re.search(r'pid:(\d+)', link_produto) or re.search(r'product/(\d+)', link_produto)
             if match:
@@ -147,7 +146,6 @@ def buscar_produtos_google(metodo, produto_base, marca, termos_excluir, link_pro
         
         res = requests.get("https://serpapi.com/search.json", params=params).json()
         
-        # RAIO-X: Mostra erro na tela se os créditos acabarem ou o Google bloquear
         if "error" in res:
             st.error(f"🚫 Falha na Busca do Google: {res['error']}")
             if "exhausted" in res["error"].lower() or "credits" in res["error"].lower():
@@ -493,7 +491,6 @@ with aba_nova_busca:
                             st.write(f"📦 {r['nome']}")
                             st.markdown(f"[🔗 Acessar Oferta]({r['link']})")
             else: 
-                # A tela de aviso para quando a busca vem vazia (o que explica por que não enviou mensagem)
                 st.warning(f"🔔 ORÇAMENTO SALVO! O robô ficará vigiando, mas não enviou alerta agora porque não encontrou nenhuma opção no teto de R$ {orc_max}.")
 
 with aba_historico:
