@@ -41,24 +41,31 @@ def parse_price(val):
     try: return float(num_str)
     except: return 999999.0
 
-def obter_link_seguro(link_bruto, titulo, loja):
+def obter_link_seguro(link_bruto):
+    if not link_bruto: return ""
+    
+    link_limpo = str(link_bruto).replace('"', '%22').replace("'", "%27")
+    
+    if len(link_limpo) < 250:
+        return link_limpo
+        
     try:
-        if link_bruto:
-            qs = urllib.parse.parse_qs(urllib.parse.urlparse(link_bruto).query)
-            for param in ['adurl', 'url', 'q']:
-                if param in qs and str(qs[param][0]).startswith('http') and "google.com" not in qs[param][0]:
-                    url_ext = str(qs[param][0])
-                    if len(url_ext) < 400: 
-                        return urllib.parse.quote(url_ext, safe=":/&?=#-_.")
+        url_encode = urllib.parse.quote(link_limpo)
+        res = requests.get(f"https://tinyurl.com/api-create.php?url={url_encode}", timeout=4)
+        if res.status_code == 200 and "tinyurl.com" in res.text:
+            return res.text.strip()
     except: pass
     
-    if link_bruto and "google.com" not in link_bruto and link_bruto.startswith("http") and len(link_bruto) < 300:
-        return urllib.parse.quote(link_bruto, safe=":/&?=#-_.")
-
-    titulo_limpo = str(titulo).replace('"', '').replace("'", "")
-    loja_limpa = str(loja).replace('"', '').replace("'", "")
-    termo = f"{loja_limpa} {titulo_limpo}"[:80] 
-    return f"https://www.google.com.br/search?q={urllib.parse.quote_plus(termo)}"
+    try:
+        qs = urllib.parse.parse_qs(urllib.parse.urlparse(link_limpo).query)
+        for param in ['adurl', 'url', 'q']:
+            if param in qs and str(qs[param][0]).startswith('http'):
+                url_ext = str(qs[param][0])
+                if len(url_ext) < 250:
+                    return urllib.parse.quote(url_ext, safe=":/&?=#-_.")
+    except: pass
+    
+    return link_limpo[:250]
 
 def buscar_hoteis_google(cidade, ida, volta, adultos, criancas, idades, quartos, orcamento_parcial):
     url = "https://serpapi.com/search.json"
@@ -145,14 +152,13 @@ def buscar_produtos_google(metodo, produto_base, marca, termos_excluir, link_pro
                 if preco <= orcamento:
                     titulo = item.get("title", "")
                     link_bruto = item.get("link", "")
-                    loja = item.get("source", "Loja")
                     
-                    link_final = obter_link_seguro(link_bruto, titulo, loja)
+                    link_final = obter_link_seguro(link_bruto)
                         
                     encontrados.append({
                         "nome": titulo,
                         "total": preco, 
-                        "loja": loja,
+                        "loja": item.get("source", "Loja não informada"),
                         "link": link_final
                     })
                     if len(encontrados) >= 5: break
@@ -166,14 +172,13 @@ def buscar_produtos_google(metodo, produto_base, marca, termos_excluir, link_pro
                 
                 if preco <= orcamento:
                     link_bruto = seller.get("link", "")
-                    loja = seller.get("name", "Loja")
                     
-                    link_final = obter_link_seguro(link_bruto, nome_produto, loja)
+                    link_final = obter_link_seguro(link_bruto)
                         
                     encontrados.append({
                         "nome": nome_produto,
                         "total": preco,
-                        "loja": loja,
+                        "loja": seller.get("name", "Loja não informada"),
                         "link": link_final
                     })
                     if len(encontrados) >= 5: break
@@ -196,7 +201,7 @@ def enviar_alerta_whatsapp(numero, itens, codigo, tipo_monitoramento, freq):
         else:
             msg = f"⏰ *ALERTA {freq.upper()}!* {len(itens)} OFERTAS DE PRODUTO (Cód: {codigo})\n\n"
             for i, p in enumerate(itens, 1):
-                msg += f"{i}️⃣ *R$ {p['total']:,.2f}* na loja {p['loja']}\n🛒 {p['nome'][:45]}...\n🔗 Link da Loja: {p['link']}\n\n"
+                msg += f"{i}️⃣ *R$ {p['total']:,.2f}* na loja {p['loja']}\n🛒 {p['nome'][:45]}...\n🔗 Acesse Aqui: {p['link']}\n\n"
         
         num_limpo = str(numero).strip().replace("-", "").replace(" ", "").replace("+", "").replace("whatsapp:", "")
         if len(num_limpo) == 10 or len(num_limpo) == 11:
