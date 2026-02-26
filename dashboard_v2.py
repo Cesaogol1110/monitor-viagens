@@ -1,4 +1,4 @@
-# código final 20/01/2026
+# código final 26/02/2026 - DESEMBRULHADOR DE LINKS DIRETOS
 # dashboard_v2.py
 import streamlit as st
 import datetime
@@ -63,47 +63,45 @@ def parse_price(val):
     try: return float(num_str)
     except: return 999999.0
 
-def obter_link_seguro(link_bruto, titulo, loja):
-    """Estratégia de Busca Avançada sugerida pelo usuário: Ignora o Google e busca dentro da loja."""
-    if link_bruto and "google.com" not in link_bruto and link_bruto.startswith("http") and len(link_bruto) < 300:
-        return link_bruto
+def desembrulhar_link(url_bruta):
+    """Extrai o link EXATO do produto rasgando o redirecionamento do Google."""
+    if not url_bruta: return ""
+    
+    # 1. Se já é um link limpo da loja (Mercado Livre, Amazon, etc)
+    if "google.com" not in url_bruta and url_bruta.startswith("http"):
+        return url_bruta
 
+    # 2. Tenta extrair da Query String (Onde o Google esconde a URL real)
     try:
-        qs = urllib.parse.parse_qs(urllib.parse.urlparse(link_bruto).query)
-        for param in ['adurl', 'url']:
-            if param in qs and str(qs[param][0]).startswith('http') and "google.com" not in qs[param][0]:
-                url_ext = str(qs[param][0])
-                if len(url_ext) < 300: return url_ext
+        qs = urllib.parse.parse_qs(urllib.parse.urlparse(url_bruta).query)
+        for p in ['adurl', 'url', 'q']:
+            if p in qs and str(qs[p][0]).startswith('http') and "google.com" not in qs[p][0]:
+                return str(qs[p][0])
     except: pass
 
-    loja_key = str(loja).lower().strip()
-    palavras = [p for p in titulo.split() if len(p) > 1][:4]
-    termo_url = urllib.parse.quote(" ".join(palavras))
-    termo_ml = "-".join(palavras).replace("%", "")
+    # 3. Faz uma requisição "fantasma" invisível para forçar o Google a cuspir a URL final
+    try:
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+        res = requests.get(url_bruta, headers=headers, allow_redirects=False, timeout=3)
+        loc = res.headers.get('Location', '')
+        if loc:
+            if "google.com" not in loc and loc.startswith("http"): return loc
+            # Se for um redirecionamento relativo do próprio Google
+            if loc.startswith("/url?"):
+                qs_loc = urllib.parse.parse_qs(urllib.parse.urlparse(loc).query)
+                if 'q' in qs_loc: return str(qs_loc['q'][0])
+                if 'url' in qs_loc: return str(qs_loc['url'][0])
+    except: pass
 
-    STORE_SEARCH_URLS = {
-        "mercado livre": f"https://lista.mercadolivre.com.br/{termo_ml}",
-        "amazon": f"https://www.amazon.com.br/s?k={termo_url}",
-        "magalu": f"https://www.magazineluiza.com.br/busca/{termo_url}/",
-        "magazine luiza": f"https://www.magazineluiza.com.br/busca/{termo_url}/",
-        "casas bahia": f"https://www.casasbahia.com.br/c/?filtro={termo_url}",
-        "le biscuit": f"https://www.lebiscuit.com.br/busca?q={termo_url}",
-        "fast shop": f"https://www.fastshop.com.br/web/s/{termo_url}",
-        "ponto": f"https://www.pontofrio.com.br/busca/{termo_url}",
-        "pontofrio": f"https://www.pontofrio.com.br/busca/{termo_url}",
-        "extra": f"https://www.extra.com.br/busca/{termo_url}",
-        "shopee": f"https://shopee.com.br/search?keyword={termo_url}",
-        "kabum": f"https://www.kabum.com.br/busca/{termo_url}",
-        "carrefour": f"https://www.carrefour.com.br/busca/{termo_url}",
-        "americanas": f"https://www.americanas.com.br/busca/{termo_url}"
-    }
+    # 4. Plano de Fuga Anti-Twilio Crash: Encurtador Is.gd
+    try:
+        res_short = requests.get(f"https://is.gd/create.php?format=simple&url={urllib.parse.quote(url_bruta)}", timeout=2)
+        if res_short.status_code == 200:
+            return res_short.text.strip()
+    except: pass
 
-    for key, url_loja in STORE_SEARCH_URLS.items():
-        if key in loja_key:
-            return url_loja
-
-    termo_exato = f'"{titulo[:40]}"'
-    return f"https://www.google.com.br/search?tbm=shop&q={urllib.parse.quote(termo_exato)}"
+    # Último recurso cortado para não estourar 1600 caracteres do WhatsApp
+    return url_bruta[:250] + "..."
 
 # ==========================================
 # MOTORES DE BUSCA: VIAGENS
@@ -203,7 +201,7 @@ def buscar_produtos_google(metodo, produto_base, marca, termos_excluir, link_pro
                     link_bruto = item.get("link", "")
                     loja = item.get("source", "Loja não informada")
                     
-                    link_final = obter_link_seguro(link_bruto, titulo, loja)
+                    link_final = desembrulhar_link(link_bruto)
                         
                     encontrados.append({
                         "nome": titulo,
@@ -224,7 +222,7 @@ def buscar_produtos_google(metodo, produto_base, marca, termos_excluir, link_pro
                     link_bruto = seller.get("link", "")
                     loja = seller.get("name", "Loja não informada")
                     
-                    link_final = obter_link_seguro(link_bruto, nome_produto, loja)
+                    link_final = desembrulhar_link(link_bruto)
                         
                     encontrados.append({
                         "nome": nome_produto,
@@ -255,7 +253,7 @@ def enviar_alerta_whatsapp_painel(numero, itens, codigo, tipo_monitoramento="via
         else:
             msg = f"📦 *{len(itens)} OFERTAS DE PRODUTO!* (Cód: {codigo})\n\n"
             for i, p in enumerate(itens, 1):
-                msg += f"{i}️⃣ *R$ {p['total']:,.2f}* na loja {p['loja']}\n🛒 {p['nome'][:45]}...\n🔗 Link: {p['link']}\n\n"
+                msg += f"{i}️⃣ *R$ {p['total']:,.2f}* na loja {p['loja']}\n🛒 {p['nome'][:45]}...\n🔗 Acesse Aqui: {p['link']}\n\n"
                 
         msg += "O sistema continuará monitorando na frequência escolhida!"
         
@@ -449,8 +447,7 @@ with aba_nova_busca:
     else:
         st.header("📦 Monitoramento de Preços de Produtos")
         
-        # AVISO DE PROTEÇÃO PARA GERENCIAR EXPECTATIVAS DO USUÁRIO
-        st.info("⚠️ **Como o Robô Funciona:** A nossa inteligência captura preços em tempo real dos bastidores do Google. Promoções relâmpago de Pix ou descontos ocultos podem esgotar na loja antes mesmo do seu clique. Se o preço na loja for maior, a oferta expirou.")
+        st.info("⚠️ **Aviso de Sincronia:** O robô monitora a base de dados interna do Google. Promoções relâmpago esgotam muito rápido. Se você clicar no link gerado e o produto der erro 404 na loja (ou o preço for maior), significa que a oferta esgotou na vida real, mas o cache do Google ainda não percebeu.")
         
         metodo_busca = st.radio("Escolha o Método de Rastreio:", ["Busca por Filtros (Avançada)", "Rastrear Link Específico (Google Shopping)"])
         
@@ -483,7 +480,7 @@ with aba_nova_busca:
         hora_a = st.time_input("Horário Base do Alerta", datetime.time(9, 45))
 
     if st.button("Buscar e Salvar Automação", type="primary", use_container_width=True):
-        with st.spinner("🚀 Consultando inteligência do Google..."):
+        with st.spinner("🚀 Desembrulhando links do Google..."):
             cod = str(uuid.uuid4())[:6].upper()
             hoje_str = datetime.datetime.now().strftime("%Y-%m-%d")
             historico_precos = {}
@@ -540,7 +537,7 @@ with aba_nova_busca:
                         else:
                             st.write(f"💰 **R$ {r['total']:,.2f}** | 🏬 Loja: {r['loja']}")
                             st.write(f"📦 {r['nome']}")
-                            st.markdown(f'<a href="{r["link"]}" target="_blank" style="font-weight:bold;">🔗 Acessar Oferta Direta</a>', unsafe_allow_html=True)
+                            st.markdown(f'<a href="{r["link"]}" target="_blank" style="font-weight:bold;">🔗 Acessar Link Direto da Oferta</a>', unsafe_allow_html=True)
             else: 
                 st.warning(f"🔔 ORÇAMENTO SALVO! O robô ficará vigiando, mas não enviou alerta agora porque não encontrou nenhuma opção no teto de R$ {orc_max}.")
 
