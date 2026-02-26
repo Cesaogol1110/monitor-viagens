@@ -4,6 +4,8 @@ import datetime
 import requests
 import time
 import os
+import urllib.parse
+import re
 from twilio.rest import Client
 
 TWILIO_ACCOUNT_SID = os.environ.get("TWILIO_ACCOUNT_SID")
@@ -12,7 +14,7 @@ TWILIO_WHATSAPP_NUMBER = os.environ.get("TWILIO_WHATSAPP_NUMBER")
 SERPAPI_KEY = os.environ.get("SERPAPI_KEY")
 FIREBASE_URL = os.environ.get("FIREBASE_URL").rstrip('/')
 
-print("Iniciando o Motor Vigilante Profissional...")
+print("Iniciando o Motor Vigilante com Controle de Frequência...")
 
 def carregar_bd():
     try:
@@ -25,6 +27,39 @@ def salvar_bd(dados):
         requests.put(f"{FIREBASE_URL}/monitoramentos.json", json=dados)
     except: pass
 
+def parse_price(val):
+    if val is None: return 999999.0
+    if isinstance(val, (int, float)): return float(val)
+    val_str = str(val).upper().replace("R$", "").replace("BRL", "").strip()
+    match = re.search(r'[\d\.,]+', val_str)
+    if not match: return 999999.0
+    num_str = match.group(0)
+    if "." in num_str and "," in num_str:
+        num_str = num_str.replace(".", "").replace(",", ".")
+    elif "," in num_str:
+        num_str = num_str.replace(",", ".")
+    try: return float(num_str)
+    except: return 999999.0
+
+def obter_link_seguro(link_bruto, titulo, loja):
+    try:
+        if link_bruto:
+            qs = urllib.parse.parse_qs(urllib.parse.urlparse(link_bruto).query)
+            for param in ['adurl', 'url', 'q']:
+                if param in qs and str(qs[param][0]).startswith('http') and "google.com" not in qs[param][0]:
+                    url_ext = str(qs[param][0])
+                    if len(url_ext) < 400: 
+                        return urllib.parse.quote(url_ext, safe=":/&?=#-_.")
+    except: pass
+    
+    if link_bruto and "google.com" not in link_bruto and link_bruto.startswith("http") and len(link_bruto) < 300:
+        return urllib.parse.quote(link_bruto, safe=":/&?=#-_.")
+
+    titulo_limpo = str(titulo).replace('"', '').replace("'", "")
+    loja_limpa = str(loja).replace('"', '').replace("'", "")
+    termo = f"{loja_limpa} {titulo_limpo}"[:80] 
+    return f"https://www.google.com.br/search?q={urllib.parse.quote_plus(termo)}"
+
 def buscar_hoteis_google(cidade, ida, volta, adultos, criancas, idades, quartos, orcamento_parcial):
     url = "https://serpapi.com/search.json"
     params = {
@@ -36,9 +71,8 @@ def buscar_hoteis_google(cidade, ida, volta, adultos, criancas, idades, quartos,
         res = requests.get(url, params=params).json()
         hoteis = []
         for h in res.get("properties", [])[:10]:
-            preco = h.get("total_rate", {}).get("extracted_lowest", 0)
-            if preco > 0:
-                hoteis.append({"nome": h.get("name"), "preco": preco, "nota": h.get("overall_rating", 0), "link": h.get("link")})
+            preco = parse_price(h.get("total_rate", {}).get("extracted_lowest", 0))
+            if preco > 0: hoteis.append({"nome": h.get("name"), "preco": preco, "nota": h.get("overall_rating", 0), "link": h.get("link")})
         return hoteis
     except: return []
 
@@ -51,6 +85,10 @@ def buscar_pacotes_completos(origem, destino, ida, volta, adt, cri, idades, orc_
     }
     try:
         res = requests.get(url, params=params).json()
+        if "error" in res:
+            print(f"Erro da SerpApi (Voos): {res['error']}")
+            return []
+            
         voos = (res.get("best_flights", []) + res.get("other_flights", []))
         link_voo = res.get("search_metadata", {}).get("google_flights_url")
         
@@ -60,67 +98,196 @@ def buscar_pacotes_completos(origem, destino, ida, volta, adt, cri, idades, orc_
             
         pacotes = []
         for v in voos[:5]:
-            p_voo = v.get("price", 0)
+            p_voo = parse_price(v.get("price", 0))
             if incluir_h and hoteis:
                 for h in hoteis[:2]: 
                     if (p_voo + h["preco"]) <= orc_total:
                         pacotes.append({"total": (p_voo + h["preco"]), "voo": v["flights"][0]["airline"], "hotel": h["nome"], "link_v": link_voo, "link_h": h["link"]})
             elif not incluir_h and p_voo <= orc_total:
                 pacotes.append({"total": p_voo, "voo": v["flights"][0]["airline"], "hotel": "Apenas Voo", "link_v": link_voo, "link_h": ""})
-        
         return sorted(pacotes, key=lambda x: x["total"])[:5]
     except: return []
 
-def enviar_alerta_whatsapp(numero, pacotes, codigo):
+def buscar_produtos_google(metodo, produto_base, marca, termos_excluir, link_produto, orcamento):
+    try:
+        params = {"hl": "pt-br", "gl": "br", "google_domain": "google.com.br", "currency": "BRL", "device": "desktop", "api_key": SERPAPI_KEY}
+        
+        if "Filtros" in metodo: 
+            query = f"{produto_base}"
+            if marca: query += f" {marca}"
+            if termos_excluir:
+                exclusoes = " ".join([f"-{t.strip()}" for t in termos_excluir.split(",") if t.strip()])
+                query += f" {exclusoes}"
+            params["engine"] = "google_shopping"
+            params["q"] = query.strip()
+        else:
+            match = re.search(r'pid:(\d+)', link_produto) or re.search(r'product/(\d+)', link_produto)
+            if match:
+                params["engine"] = "google_product"
+                params["product_id"] = match.group(1)
+            else:
+                params["engine"] = "google_shopping"
+                params["q"] = link_produto
+        
+        res = requests.get("https://serpapi.com/search.json", params=params).json()
+        
+        if "error" in res:
+            print(f"Falha na Busca de Produtos (Google): {res['error']}")
+            return []
+            
+        encontrados = []
+        
+        if "shopping_results" in res:
+            for item in res["shopping_results"]:
+                preco_bruto = item.get("extracted_price") or item.get("price")
+                preco = parse_price(preco_bruto)
+                
+                if preco <= orcamento:
+                    titulo = item.get("title", "")
+                    link_bruto = item.get("link", "")
+                    loja = item.get("source", "Loja")
+                    
+                    link_final = obter_link_seguro(link_bruto, titulo, loja)
+                        
+                    encontrados.append({
+                        "nome": titulo,
+                        "total": preco, 
+                        "loja": loja,
+                        "link": link_final
+                    })
+                    if len(encontrados) >= 5: break
+        
+        elif "product_results" in res:
+            nome_produto = res.get("product_results", {}).get("title", "Produto Rastreado")
+            
+            for seller in res.get("sellers_results", {}).get("online_sellers", []):
+                preco_bruto = seller.get("base_price")
+                preco = parse_price(preco_bruto)
+                
+                if preco <= orcamento:
+                    link_bruto = seller.get("link", "")
+                    loja = seller.get("name", "Loja")
+                    
+                    link_final = obter_link_seguro(link_bruto, nome_produto, loja)
+                        
+                    encontrados.append({
+                        "nome": nome_produto,
+                        "total": preco,
+                        "loja": loja,
+                        "link": link_final
+                    })
+                    if len(encontrados) >= 5: break
+                    
+        return sorted(encontrados, key=lambda x: x["total"])
+    except Exception as e:
+        print("Erro Produto:", e)
+        return []
+
+def enviar_alerta_whatsapp(numero, itens, codigo, tipo_monitoramento, freq):
     try:
         client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
-        msg = f"⏰ *ALERTA DIÁRIO!* {len(pacotes)} OPÇÕES ENCONTRADAS (Cód: {codigo})\n\n"
-        for i, p in enumerate(pacotes, 1):
-            msg += f"{i}️⃣ *R$ {p['total']:,.2f}*\n✈️ {p['voo']}\n🏨 {p['hotel']}\n🔗 Voo: {p['link_v']}\n"
-            if p['link_h']: msg += f"🔗 Hotel: {p['link_h']}\n"
-            msg += "\n"
-        dest = f"whatsapp:{numero}" if not numero.startswith("whatsapp:") else numero
+        
+        if tipo_monitoramento == "viagem":
+            msg = f"⏰ *ALERTA {freq.upper()}!* {len(itens)} OPÇÕES DE VIAGEM (Cód: {codigo})\n\n"
+            for i, p in enumerate(itens, 1):
+                msg += f"{i}️⃣ *R$ {p['total']:,.2f}*\n✈️ {p['voo']}\n🏨 {p['hotel']}\n🔗 Voo: {p['link_v']}\n"
+                if p.get('link_h'): msg += f"🔗 Hotel: {p['link_h']}\n"
+                msg += "\n"
+        else:
+            msg = f"⏰ *ALERTA {freq.upper()}!* {len(itens)} OFERTAS DE PRODUTO (Cód: {codigo})\n\n"
+            for i, p in enumerate(itens, 1):
+                msg += f"{i}️⃣ *R$ {p['total']:,.2f}* na loja {p['loja']}\n🛒 {p['nome'][:45]}...\n🔗 Link da Loja: {p['link']}\n\n"
+        
+        num_limpo = str(numero).strip().replace("-", "").replace(" ", "").replace("+", "").replace("whatsapp:", "")
+        if len(num_limpo) == 10 or len(num_limpo) == 11:
+            num_limpo = f"55{num_limpo}"
+        dest = f"whatsapp:+{num_limpo}"
+        
         client.messages.create(from_=TWILIO_WHATSAPP_NUMBER, body=msg, to=dest)
         return True
     except Exception as e:
-        print(f"Erro WhatsApp: {e}") 
+        print(f"Erro WhatsApp: {e}")
         return False
 
 def loop_vigilante():
-    print("Motor em vigília ativa no Render. Verificando relógio...")
+    print("Motor em vigília ativa no Render. Verificando relógio e frequências...")
     while True:
         try:
             bd = carregar_bd()
             fuso_br = datetime.timezone(datetime.timedelta(hours=-3))
-            agora = datetime.datetime.now(fuso_br).strftime("%H:%M")
-            hoje = datetime.datetime.now(fuso_br).strftime("%Y-%m-%d")
+            agora_dt = datetime.datetime.now(fuso_br)
+            agora_str = agora_dt.strftime("%H:%M")
+            hoje_str = agora_dt.strftime("%Y-%m-%d")
+            agora_full_str = agora_dt.strftime("%Y-%m-%d %H:%M")
+            
+            h_atual = agora_dt.hour
+            m_atual = agora_dt.minute
             
             houve_mudanca = False
             for cod, info in bd.items():
                 if info.get("monitorar") == True:
-                    if agora == info.get("horario") and info.get("ultimo_disparo") != hoje:
-                        print(f"⏰ Disparando código {cod}...")
+                    freq = info.get("frequencia", "Diariamente")
+                    horario_alvo = info.get("horario", "00:00")
+                    data_criacao = info.get("data_criacao", hoje_str)
+                    
+                    try: H_alvo, M_alvo = map(int, horario_alvo.split(":"))
+                    except: H_alvo, M_alvo = 0, 0
+                    
+                    ultimo_disp_full = info.get("ultimo_disparo_full", info.get("ultimo_disparo", ""))
+                    
+                    disp_hoje = (ultimo_disp_full[:10] == hoje_str) if len(ultimo_disp_full) >= 10 else False
+                    disp_esta_hora = (ultimo_disp_full == agora_full_str)
+                    
+                    deve_disparar = False
+                    
+                    if freq == "Diariamente":
+                        if agora_str == horario_alvo and not disp_hoje: deve_disparar = True
+                            
+                    elif freq == "A cada hora":
+                        if m_atual == M_alvo and not disp_esta_hora: deve_disparar = True
+                            
+                    elif freq == "2 vezes por dia":
+                        if (h_atual % 12) == (H_alvo % 12) and m_atual == M_alvo and not disp_esta_hora: deve_disparar = True
+                            
+                    elif freq == "4 vezes por dia":
+                        if (h_atual % 6) == (H_alvo % 6) and m_atual == M_alvo and not disp_esta_hora: deve_disparar = True
+                            
+                    elif freq == "Semanalmente":
+                        try: dia_semana_base = datetime.datetime.strptime(data_criacao, "%Y-%m-%d").weekday()
+                        except: dia_semana_base = agora_dt.weekday()
+                        if agora_dt.weekday() == dia_semana_base and agora_str == horario_alvo and not disp_hoje: deve_disparar = True
+                            
+                    elif freq == "Mensalmente":
+                        try: dia_mes_base = datetime.datetime.strptime(data_criacao, "%Y-%m-%d").day
+                        except: dia_mes_base = agora_dt.day
+                        if agora_dt.day == dia_mes_base and agora_str == horario_alvo and not disp_hoje: deve_disparar = True
+                    
+                    if deve_disparar:
+                        print(f"⏰ Disparando código {cod} (Frequência: {freq})...")
+                        tipo_mon = info.get("tipo_monitoramento", "viagem")
                         
-                        # Busca o pacote com as mesmas premissas do site
-                        res = buscar_pacotes_completos(
-                            info.get("origem"), info.get("destino"), info.get("data_ida"), info.get("data_volta", ""),
-                            info.get("adultos", 1), info.get("criancas", 0), info.get("idades_criancas", []),
-                            info.get("orcamento_max", 99999), info.get("incluir_hospedagem", False), info.get("cidade_hotel", "")
-                        )
+                        if tipo_mon == "viagem":
+                            res = buscar_pacotes_completos(
+                                info.get("origem"), info.get("destino"), info.get("data_ida"), info.get("data_volta", ""),
+                                info.get("adultos", 1), info.get("criancas", 0), info.get("idades_criancas", []),
+                                info.get("orcamento_max", 99999), info.get("incluir_hospedagem", False), info.get("cidade_hotel", "")
+                            )
+                        else:
+                            res = buscar_produtos_google(
+                                info.get("metodo_busca"), info.get("produto_base"), info.get("marca"), 
+                                info.get("termos_excluir"), info.get("link_produto"), info.get("orcamento_max", 99999)
+                            )
                         
                         if res:
-                            # Gravar histórico no bd para o gráfico
-                            if "historico" not in info:
-                                info["historico"] = {}
-                            info["historico"][hoje] = res[0]["total"]
+                            if "historico" not in info: info["historico"] = {}
+                            info["historico"][agora_full_str] = res[0]["total"]
                             
-                            # Envia o whatsapp
-                            if enviar_alerta_whatsapp(info.get("telefone"), res, cod):
-                                info["ultimo_disparo"] = hoje
+                            if enviar_alerta_whatsapp(info.get("telefone"), res, cod, tipo_mon, freq):
+                                info["ultimo_disparo"] = hoje_str
+                                info["ultimo_disparo_full"] = agora_full_str
                                 houve_mudanca = True
             
-            if houve_mudanca: 
-                salvar_bd(bd)
+            if houve_mudanca: salvar_bd(bd)
         except Exception as e: print(f"Erro no loop: {e}")
         time.sleep(30)
 
