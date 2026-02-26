@@ -1,4 +1,4 @@
-# código final 26/02/2026 - BLINDAGEM DE LINKS E LIMITE DO TWILIO
+# código final 26/02/2026 - BLINDAGEM DE LINKS CURTOS E DIRECIONADOS
 # dashboard_v2.py
 import streamlit as st
 import datetime
@@ -47,7 +47,7 @@ def salvar_bd(dados):
     requests.put(f"{FIREBASE_URL}/monitoramentos.json", json=dados)
 
 # ==========================================
-# FUNÇÕES DE LIMPEZA (PREÇOS E LINKS SEGUROS)
+# FUNÇÕES DE LIMPEZA E ENGENHARIA DE LINKS
 # ==========================================
 def parse_price(val):
     if val is None: return 999999.0
@@ -63,32 +63,27 @@ def parse_price(val):
     try: return float(num_str)
     except: return 999999.0
 
-def obter_link_seguro(item, titulo_fallback):
-    """Garante links curtos e funcionais para PC/Mobile e não trava o Twilio."""
-    # 1. Tenta o ID oficial (Link mais limpo possível)
-    pid = item.get("product_id")
-    if pid:
-        return f"https://www.google.com.br/shopping/product/{pid}"
-    
-    link_bruto = item.get("link", "")
-    if link_bruto:
-        # 2. Tenta extrair a URL direta da loja sem o rastreio
-        try:
-            qs = urllib.parse.parse_qs(urllib.parse.urlparse(link_bruto).query)
-            for param in ['adurl', 'url']:
-                if param in qs and str(qs[param][0]).startswith('http'):
-                    link_extraido = str(qs[param][0])
-                    if len(link_extraido) < 400:  # Evita links gigantes de lojas
-                        return link_extraido
-        except: pass
+def obter_link_seguro(link_bruto, titulo, loja):
+    """Garante links curtos e funcionais para burlar o limite do Twilio e erros do Google."""
+    # 1. Se o link for direto da loja e for curto, usamos.
+    if link_bruto and "google.com" not in link_bruto and link_bruto.startswith("http") and len(link_bruto) < 300:
+        return link_bruto
         
-        # 3. Se for um link de loja normal (não Google)
-        if "google.com" not in link_bruto and link_bruto.startswith("http") and len(link_bruto) < 400:
-            return link_bruto
+    # 2. Tenta rasgar a embalagem do Google e extrair o link puro da loja
+    try:
+        if link_bruto:
+            qs = urllib.parse.parse_qs(urllib.parse.urlparse(link_bruto).query)
+            for param in ['adurl', 'url', 'q']:
+                if param in qs and str(qs[param][0]).startswith('http') and "google.com" not in qs[param][0]:
+                    if len(qs[param][0]) < 300: 
+                        return str(qs[param][0])
+    except: pass
 
-    # 4. Fallback: Se for link quebrado (ibp=oshop) ou gigante, recria pesquisa limpa curta
-    titulo_curto = titulo_fallback[:40] 
-    return f"https://www.google.com.br/search?tbm=shop&q={urllib.parse.quote(titulo_curto)}"
+    # 3. Rota de Fuga Infalível: Busca Curta Direcionada (Ex: "Loja X Produto Y")
+    # Evita 100% o Erro 400 do Twilio (links enormes) e a tela cinza no Desktop.
+    termo = f"{loja} {titulo}".strip()
+    termo_curto = termo[:60] # Limite seguro para não estourar URLs
+    return f"https://www.google.com.br/search?tbm=shop&q={urllib.parse.quote(termo_curto)}"
 
 # ==========================================
 # MOTORES DE BUSCA: VIAGENS
@@ -147,7 +142,7 @@ def buscar_pacotes_completos(origem, destino, ida, volta, adt, cri, idades, orc_
         return []
 
 # ==========================================
-# MOTORES DE BUSCA: PRODUTOS (COM BLINDAGEM TWILIO)
+# MOTORES DE BUSCA: PRODUTOS
 # ==========================================
 def buscar_produtos_google(metodo, produto_base, marca, termos_excluir, link_produto, orcamento):
     try:
@@ -185,12 +180,15 @@ def buscar_produtos_google(metodo, produto_base, marca, termos_excluir, link_pro
                 
                 if preco <= orcamento:
                     titulo = item.get("title", "")
-                    link_final = obter_link_seguro(item, titulo)
+                    link_bruto = item.get("link", "")
+                    loja = item.get("source", "Loja")
+                    
+                    link_final = obter_link_seguro(link_bruto, titulo, loja)
                         
                     encontrados.append({
                         "nome": titulo,
                         "total": preco, 
-                        "loja": item.get("source", "Loja não informada"),
+                        "loja": loja,
                         "link": link_final
                     })
                     if len(encontrados) >= 5: break
@@ -203,12 +201,15 @@ def buscar_produtos_google(metodo, produto_base, marca, termos_excluir, link_pro
                 preco = parse_price(preco_bruto)
                 
                 if preco <= orcamento:
-                    link_final = obter_link_seguro(seller, nome_produto)
+                    link_bruto = seller.get("link", "")
+                    loja = seller.get("name", "Loja")
+                    
+                    link_final = obter_link_seguro(link_bruto, nome_produto, loja)
                         
                     encontrados.append({
                         "nome": nome_produto,
                         "total": preco,
-                        "loja": seller.get("name", "Loja não informada"),
+                        "loja": loja,
                         "link": link_final
                     })
                     if len(encontrados) >= 5: break
