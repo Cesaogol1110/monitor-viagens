@@ -102,7 +102,7 @@ def enviar_alerta_whatsapp(numero, pacotes, codigo):
             msg += f"{i}️⃣ *R$ {p['total']:,.2f}*\n✈️ {p['voo']}\n🏨 {p['hotel']}\n🔗 Voo: {p['link_v']}\n"
             if p['link_h']: msg += f"🔗 Hotel: {p['link_h']}\n"
             msg += "\n"
-        msg += "O robô vigilante continuará monitorando diariamente!"
+        msg += "O robô vigilante continuará monitorando diariamente no Render!"
         dest = f"whatsapp:{numero}" if not numero.startswith("whatsapp:") else numero
         client.messages.create(from_=TWILIO_WHATSAPP_NUMBER, body=msg, to=dest)
         return True
@@ -168,7 +168,7 @@ st.sidebar.write(f"👤 Usuário: **{st.session_state['usuario_logado']}**")
 
 bd_atual = carregar_bd()
 
-# --- CARTÕES INTERATIVOS (BOTOES DE ATIVAR/PAUSAR E EXCLUIR) ---
+# --- CARTÕES INTERATIVOS (AGORA COM O HORÁRIO DO ROBÔ) ---
 with st.sidebar.expander("📂 Meus Orçamentos Salvos", expanded=True):
     encontrou_algum = False
     
@@ -187,6 +187,7 @@ with st.sidebar.expander("📂 Meus Orçamentos Salvos", expanded=True):
                 else:
                     st.caption(f"📅 **Data:** {info.get('data_ida')} (Somente Ida)")
                 st.caption(f"💰 **Teto:** R$ {info.get('orcamento_max', 0):,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+                st.caption(f"⏰ **Motor diário:** às {info.get('horario', 'N/A')}") # Horário adicionado aqui
                 
                 # Botoes lado a lado
                 col_b1, col_b2 = st.columns(2)
@@ -195,20 +196,19 @@ with st.sidebar.expander("📂 Meus Orçamentos Salvos", expanded=True):
                     if st.button(lbl_btn, key=f"tog_{c}", use_container_width=True):
                         bd_atual[c]["monitorar"] = not is_ativo
                         salvar_bd(bd_atual)
-                        st.rerun() # Atualiza a tela na hora
+                        st.rerun() 
                 
                 with col_b2:
                     if st.button("🗑️ Excluir", key=f"del_{c}", use_container_width=True):
                         del bd_atual[c]
                         salvar_bd(bd_atual)
-                        st.rerun() # Remove o cartão da tela na hora
+                        st.rerun() 
     
     if not encontrou_algum:
         st.info("Nenhum orçamento salvo.")
 
 st.title("✈️ Monitor de Viagens Avançado")
 
-# DIVISÃO EM ABAS
 aba_nova_busca, aba_historico = st.tabs(["🔎 Nova Busca & Configuração", "📈 Relatório de Tendências (Histórico)"])
 
 with aba_nova_busca:
@@ -274,11 +274,11 @@ with aba_nova_busca:
                 "origem": AEROPORTOS[origem_n], "destino": AEROPORTOS[destino_n], "orcamento_max": orc_max,
                 "data_ida": ida_s, "data_volta": vlt_s, "adultos": adt, "criancas": cri, 
                 "ultimo_disparo": hoje_str if resultados else "", 
-                "incluir_hospedagem": incluir_hospedagem,
+                "incluir_hospedagem": incluir_hospedagem, "cidade_hotel": cidade_hotel,
                 "historico": historico_precos
             }
             salvar_bd(bd_atual)
-            st.rerun() # Atualiza a barra lateral imediatamente com o novo cartão
+            st.rerun() 
 
 with aba_historico:
     st.subheader("📉 Análise de Tendência de Preços")
