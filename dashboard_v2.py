@@ -1,4 +1,4 @@
-# código final 26/02/2026 - BLINDAGEM DE LINKS CURTOS E DIRECIONADOS
+# código final 26/02/2026 - TÁTICA SNIPER DE LOJAS
 # dashboard_v2.py
 import streamlit as st
 import datetime
@@ -64,12 +64,12 @@ def parse_price(val):
     except: return 999999.0
 
 def obter_link_seguro(link_bruto, titulo, loja):
-    """Garante links curtos e funcionais para burlar o limite do Twilio e erros do Google."""
-    # 1. Se o link for direto da loja e for curto, usamos.
+    """Garante links curtos. Se o Google enviar 'lixo', faz um sniper direto no site da loja."""
+    # 1. Se o link for direto da loja e for curto, usamos intacto.
     if link_bruto and "google.com" not in link_bruto and link_bruto.startswith("http") and len(link_bruto) < 300:
         return link_bruto
         
-    # 2. Tenta rasgar a embalagem do Google e extrair o link puro da loja
+    # 2. Tenta extrair a URL pura escondida nos parâmetros do Google
     try:
         if link_bruto:
             qs = urllib.parse.parse_qs(urllib.parse.urlparse(link_bruto).query)
@@ -79,11 +79,14 @@ def obter_link_seguro(link_bruto, titulo, loja):
                         return str(qs[param][0])
     except: pass
 
-    # 3. Rota de Fuga Infalível: Busca Curta Direcionada (Ex: "Loja X Produto Y")
-    # Evita 100% o Erro 400 do Twilio (links enormes) e a tela cinza no Desktop.
-    termo = f"{loja} {titulo}".strip()
-    termo_curto = termo[:60] # Limite seguro para não estourar URLs
-    return f"https://www.google.com.br/search?tbm=shop&q={urllib.parse.quote(termo_curto)}"
+    # 3. TÁTICA SNIPER: Força o buscador normal do Google a olhar APENAS para a loja
+    # Ex: site:lebiscuit.com.br "Smart TV 4K Hisense..."
+    loja_formatada = loja.lower().replace(" ", "").replace(".com.br", "").replace(".com", "")
+    dominio = f"{loja_formatada}.com.br"
+    
+    termo_curto = titulo[:45] 
+    query_sniper = f"site:{dominio} {termo_curto}"
+    return f"https://www.google.com.br/search?q={urllib.parse.quote(query_sniper)}"
 
 # ==========================================
 # MOTORES DE BUSCA: VIAGENS
