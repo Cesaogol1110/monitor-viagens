@@ -1,4 +1,4 @@
-# código final 26/02/2026 - CORREÇÃO DO PARÂMETRO DE BUSCA
+# código final 26/02/2026 - CORREÇÃO DEFINITIVA DOS LINKS DE PRODUTOS
 # dashboard_v2.py
 import streamlit as st
 import datetime
@@ -120,13 +120,12 @@ def buscar_pacotes_completos(origem, destino, ida, volta, adt, cri, idades, orc_
         return []
 
 # ==========================================
-# MOTORES DE BUSCA: PRODUTOS
+# MOTORES DE BUSCA: PRODUTOS (COM FILTRO DE LINK)
 # ==========================================
 def buscar_produtos_google(metodo, produto_base, marca, termos_excluir, link_produto, orcamento):
     try:
         params = {"hl": "pt-br", "gl": "br", "google_domain": "google.com.br", "currency": "BRL", "api_key": SERPAPI_KEY}
         
-        # AQUI FOI CORRIGIDA A FALHA DE COMUNICAÇÃO DO NOME DO BOTÃO
         if "Filtros" in metodo: 
             query = f"{produto_base}"
             if marca: query += f" {marca}"
@@ -149,7 +148,7 @@ def buscar_produtos_google(metodo, produto_base, marca, termos_excluir, link_pro
         if "error" in res:
             st.error(f"🚫 Falha na Busca do Google: {res['error']}")
             if "exhausted" in res["error"].lower() or "credits" in res["error"].lower():
-                st.warning("💡 O seu plano da SerpApi atingiu o limite (100 buscas gratuitas). Será necessário aguardar a renovação ou criar uma nova chave de API.")
+                st.warning("💡 O seu plano da SerpApi atingiu o limite. Será necessário aguardar a renovação ou criar uma nova chave de API.")
             return []
             
         encontrados = []
@@ -161,7 +160,11 @@ def buscar_produtos_google(metodo, produto_base, marca, termos_excluir, link_pro
                 
                 if preco <= orcamento:
                     titulo = item.get("title", "")
-                    link_oferta = item.get("link") or item.get("product_link") or f"https://www.google.com/search?q={urllib.parse.quote(titulo)}&tbm=shop"
+                    link_oferta = item.get("link") or item.get("product_link") or ""
+                    
+                    # FILTRO ANTI-QUEBRA DE LINK
+                    if not link_oferta or "ibp=oshop" in link_oferta or link_oferta.startswith("/search"):
+                        link_oferta = f"https://www.google.com.br/search?tbm=shop&q={urllib.parse.quote(titulo)}"
                     
                     encontrados.append({
                         "nome": titulo,
@@ -178,7 +181,12 @@ def buscar_produtos_google(metodo, produto_base, marca, termos_excluir, link_pro
                 preco = parse_price(preco_bruto)
                 
                 if preco <= orcamento:
-                    link_oferta = seller.get("link") or f"https://www.google.com/search?q={urllib.parse.quote(nome_produto)}&tbm=shop"
+                    link_oferta = seller.get("link") or ""
+                    
+                    # FILTRO ANTI-QUEBRA DE LINK
+                    if not link_oferta or "ibp=oshop" in link_oferta or link_oferta.startswith("/search"):
+                        link_oferta = f"https://www.google.com.br/search?tbm=shop&q={urllib.parse.quote(nome_produto)}"
+                        
                     encontrados.append({
                         "nome": nome_produto,
                         "total": preco,
