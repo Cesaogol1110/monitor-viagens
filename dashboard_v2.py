@@ -9,35 +9,61 @@ import os
 import threading
 import time
 import urllib.parse
+import random
 from twilio.rest import Client
 
 st.set_page_config(page_title="Robô de Viagens", layout="wide")
 
 # ==========================================
-# CONFIGURAÇÕES E BANCOS DE DADOS LOCAIS
+# CONFIGURAÇÕES E CHAVES DO COFRE
 # ==========================================
 TWILIO_ACCOUNT_SID = st.secrets["TWILIO_ACCOUNT_SID"]
 TWILIO_AUTH_TOKEN = st.secrets["TWILIO_AUTH_TOKEN"]
 TWILIO_WHATSAPP_NUMBER = st.secrets["TWILIO_WHATSAPP_NUMBER"]
 SERPAPI_KEY = st.secrets["SERPAPI_KEY"]
-
 CHAVE_ATIVACAO_STRIPE = st.secrets.get("CHAVE_ACESSO_CLIENTES", "123452026") 
+FIREBASE_URL = st.secrets["FIREBASE_URL"] 
 
-ARQUIVO_BD = "monitoramentos.json"
-ARQUIVO_USUARIOS = "usuarios.json"
-
+# ==========================================
+# CONEXÃO DEFINITIVA COM FIREBASE (NUVEM)
+# ==========================================
 def carregar_usuarios():
-    if os.path.exists(ARQUIVO_USUARIOS):
-        with open(ARQUIVO_USUARIOS, "r", encoding="utf-8") as f:
-            return json.load(f)
+    try:
+        res = requests.get(f"{FIREBASE_URL}/usuarios.json")
+        if res.status_code == 200 and res.json() is not None:
+            return res.json()
+    except: pass
     return {}
 
 def salvar_usuarios(dados):
-    with open(ARQUIVO_USUARIOS, "w", encoding="utf-8") as f:
-        json.dump(dados, f, indent=4, ensure_ascii=False)
+    try:
+        requests.put(f"{FIREBASE_URL}/usuarios.json", json=dados)
+    except: pass
+
+def carregar_bd():
+    try:
+        res = requests.get(f"{FIREBASE_URL}/monitoramentos.json")
+        if res.status_code == 200 and res.json() is not None:
+            return res.json()
+    except: pass
+    return {}
+
+def salvar_bd(dados):
+    try:
+        requests.put(f"{FIREBASE_URL}/monitoramentos.json", json=dados)
+    except: pass
+
+def testar_alerta_whatsapp(numero_destino, mensagem):
+    try:
+        client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
+        destino_formatado = numero_destino if numero_destino.startswith("whatsapp:") else f"whatsapp:{numero_destino}"
+        message = client.messages.create(from_=TWILIO_WHATSAPP_NUMBER, body=mensagem, to=destino_formatado)
+        return True, message.sid
+    except Exception as e:
+        return False, str(e)
 
 # ==========================================
-# SISTEMA DE LOGIN INDIVIDUAL
+# SISTEMA DE LOGIN E GESTÃO MASTER
 # ==========================================
 if "autenticado" not in st.session_state:
     st.session_state["autenticado"] = False
@@ -48,7 +74,8 @@ if not st.session_state["autenticado"]:
     st.write("Bem-vindo ao robô inteligente de busca de passagens e hotéis.")
     
     with st.container(border=True):
-        aba_login, aba_cadastro = st.tabs(["🔐 Fazer Login", "🆕 Primeiro Acesso (Ativar Conta)"])
+        # NOVAS ABAS INCLUÍDAS
+        aba_login, aba_cadastro, aba_esqueci, aba_admin = st.tabs(["🔐 Fazer Login", "🆕 Ativar Conta", "❓ Esqueci a Senha", "👑 Admin"])
         
         with aba_login:
             st.subheader("Já tenho uma conta")
@@ -67,13 +94,12 @@ if not st.session_state["autenticado"]:
         with aba_cadastro:
             st.subheader("Ativar minha assinatura")
             st.write("Insira o código recebido após o pagamento para criar seu login.")
-            
-            codigo_ativacao = st.text_input("Código de Ativação (Recebido no Stripe):", type="password")
+            codigo_ativacao = st.text_input("Código de Ativação (Stripe):", type="password")
             st.divider()
             novo_tel = st.text_input("Crie seu Login (Seu Telefone com DDD):", placeholder="Ex: 11999999999")
             nova_senha = st.text_input("Crie uma Senha Pessoal:", type="password")
             
-            if st.button("Criar Conta e Entrar", type="primary", use_container_width=True):
+            if st.button("Criar Conta e Entrar", type="primary", use_container_width=True, key="btn_cad"):
                 if codigo_ativacao != CHAVE_ATIVACAO_STRIPE:
                     st.error("❌ Código de ativação inválido ou expirado.")
                 elif not novo_tel or not nova_senha:
@@ -85,12 +111,56 @@ if not st.session_state["autenticado"]:
                     else:
                         usuarios[novo_tel] = {"senha": nova_senha, "data_cadastro": str(datetime.date.today())}
                         salvar_usuarios(usuarios)
-                        st.success("✅ Conta criada com sucesso! Redirecionando...")
+                        st.success("✅ Conta criada com sucesso! Salvando nas nuvens...")
                         st.session_state["autenticado"] = True
                         st.session_state["usuario_logado"] = novo_tel
                         time.sleep(1)
                         st.rerun()
+        
+        # NOVO: SISTEMA DE RECUPERAÇÃO VIA WHATSAPP
+        with aba_esqueci:
+            st.subheader("Recuperar Senha")
+            st.write("Enviaremos uma nova senha gerada pelo sistema para o seu WhatsApp.")
+            tel_recuperar = st.text_input("Seu Telefone com DDD:", placeholder="Ex: 11999999999", key="rec_tel")
+            
+            if st.button("Receber Nova Senha", type="primary", use_container_width=True, key="btn_rec"):
+                usuarios = carregar_usuarios()
+                if tel_recuperar in usuarios:
+                    nova_senha_random = str(random.randint(100000, 999999))
+                    usuarios[tel_recuperar]["senha"] = nova_senha_random
+                    salvar_usuarios(usuarios)
+                    
+                    msg_recuperacao = f"🔐 *Monitor ARCA - Recuperação de Acesso*\n\nSua senha foi redefinida. A sua nova senha provisória é: *{nova_senha_random}*\n\nVolte ao aplicativo para fazer o login."
+                    sucesso_wa, erro_wa = testar_alerta_whatsapp(tel_recuperar, msg_recuperacao)
+                    
+                    if sucesso_wa:
+                        st.success("✅ Nova senha enviada para o seu WhatsApp com sucesso!")
+                    else:
+                        st.error("⚠️ Ocorreu um erro no envio. Contate o administrador.")
+                else:
+                    st.error("❌ Telefone não encontrado no banco de dados.")
+
+        # NOVO: PAINEL DE GESTÃO DO MASTER (CESAR)
+        with aba_admin:
+            st.subheader("Painel de Gestão Master")
+            senha_admin = st.text_input("Senha Master:", type="password", key="admin_pwd")
+            
+            if senha_admin == CHAVE_ATIVACAO_STRIPE:
+                st.success("✅ Acesso de Diretor Liberado!")
+                st.divider()
+                usuarios_bd = carregar_usuarios()
                 
+                if usuarios_bd:
+                    st.write(f"**Total de Clientes Registrados:** {len(usuarios_bd)}")
+                    user_to_reset = st.selectbox("Selecione o usuário para gerenciar:", list(usuarios_bd.keys()))
+                    
+                    if st.button("Forçar Reset de Senha (Padrão: 123456)"):
+                        usuarios_bd[user_to_reset]["senha"] = "123456"
+                        salvar_usuarios(usuarios_bd)
+                        st.success(f"✅ Senha do cliente {user_to_reset} alterada para '123456' com sucesso.")
+                else:
+                    st.info("Nenhum usuário cadastrado no banco de dados ainda.")
+
     st.divider()
     st.info("💡 **Ainda não tem acesso?** Adquira a sua licença mensal para desbloquear buscas ilimitadas.")
     st.markdown("### [🛒 **Clique aqui para Assinar e Liberar seu Acesso**](https://buy.stripe.com/test_4gM28r8YbgXQ0et0sZaAw00)") 
@@ -148,27 +218,8 @@ def obter_logo_cia(nome_cia):
         if chave.lower() in nome_cia.lower(): return url_logo
     return "https://cdn-icons-png.flaticon.com/512/3125/3125713.png"
 
-def carregar_bd():
-    if os.path.exists(ARQUIVO_BD):
-        with open(ARQUIVO_BD, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return {}
-
-def salvar_bd(dados):
-    with open(ARQUIVO_BD, "w", encoding="utf-8") as f:
-        json.dump(dados, f, indent=4, ensure_ascii=False)
-
 def formatar_moeda(valor):
     return f"R$ {valor:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-
-def testar_alerta_whatsapp(numero_destino, mensagem):
-    try:
-        client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
-        destino_formatado = numero_destino if numero_destino.startswith("whatsapp:") else f"whatsapp:{numero_destino}"
-        message = client.messages.create(from_=TWILIO_WHATSAPP_NUMBER, body=mensagem, to=destino_formatado)
-        return True, message.sid
-    except Exception as e:
-        return False, str(e)
 
 def validar_horario(hora_str, filtro):
     if filtro == "Qualquer horário" or hora_str == "--:--": return True
@@ -355,7 +406,7 @@ def buscar_pacotes_completos(tipo_voo, origem, destino, incluir_hospedagem, cida
     except Exception as e: return {"status": "erro", "mensagem": f"Falha na comunicação: {str(e)}"}
 
 # ==========================================
-# MOTOR DE FUNDO
+# MOTOR DE FUNDO (USANDO NUVEM)
 # ==========================================
 def processar_disparo(cod, info, hoje):
     res = buscar_pacotes_completos(
@@ -456,7 +507,7 @@ with st.sidebar.expander("📂 Consultar Orçamentos Salvos"):
                             salvar_bd(bd_atual)
                             st.success("Mensagem enviada com sucesso para o seu celular!")
                         else:
-                            st.error("Erro ao simular disparo ou nenhuma opção encontrada.")
+                            st.error("Erro ao simular disparo ou nenhuma opção encontrada no orçamento.")
             st.divider()
 
 with st.sidebar.expander("📲 Ativar Monitoramento Automático"):
@@ -475,7 +526,7 @@ with st.sidebar.expander("📲 Ativar Monitoramento Automático"):
                 salvar_bd(bd_atual)
                 st.sidebar.warning(f"🛑 Monitoramento {codigo_limpo} CANCELADO!")
         else:
-            st.sidebar.error("Código não encontrado.")
+            st.sidebar.error("Código não encontrado no banco de dados nas nuvens.")
 
 st.title("✈️ Monitor de Viagens Avançado")
 
