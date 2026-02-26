@@ -1,4 +1,4 @@
-# código final 26/02/2026
+# código final 26/02/2026 - EXTRAÇÃO DIRETA PARA A LOJA
 # dashboard_v2.py
 import streamlit as st
 import datetime
@@ -47,7 +47,7 @@ def salvar_bd(dados):
     requests.put(f"{FIREBASE_URL}/monitoramentos.json", json=dados)
 
 # ==========================================
-# FUNÇÃO DE LIMPEZA DE PREÇOS À PROVA DE BALAS
+# FUNÇÕES DE LIMPEZA (PREÇOS E LINKS DIRETOS)
 # ==========================================
 def parse_price(val):
     if val is None: return 999999.0
@@ -62,6 +62,27 @@ def parse_price(val):
         num_str = num_str.replace(",", ".")
     try: return float(num_str)
     except: return 999999.0
+
+def extrair_link_direto(link_bruto, link_produto_api=""):
+    """Arranca o link direto da loja de dentro do rastreio do Google"""
+    if not link_bruto: return ""
+    try:
+        parsed = urllib.parse.urlparse(link_bruto)
+        qs = urllib.parse.parse_qs(parsed.query)
+        # O Google esconde o link da loja nestes parâmetros
+        if 'adurl' in qs: return qs['adurl'][0]
+        if 'url' in qs: return qs['url'][0]
+        if 'q' in qs and str(qs['q'][0]).startswith('http'): return qs['q'][0]
+    except:
+        pass
+        
+    # Se falhar e for um link de telemóvel quebrado (ibp), usa a vitrine oficial como ultimo recurso
+    if "ibp=oshop" in link_bruto:
+        if link_produto_api and link_produto_api.startswith("http"):
+            return link_produto_api
+            
+    # Retorna o link original se não encontrou rastreios
+    return link_bruto
 
 # ==========================================
 # MOTORES DE BUSCA: VIAGENS
@@ -120,11 +141,12 @@ def buscar_pacotes_completos(origem, destino, ida, volta, adt, cri, idades, orc_
         return []
 
 # ==========================================
-# MOTORES DE BUSCA: PRODUTOS (LINKS NATIVOS DIRETOS)
+# MOTORES DE BUSCA: PRODUTOS (EXTRAÇÃO NATIVA)
 # ==========================================
 def buscar_produtos_google(metodo, produto_base, marca, termos_excluir, link_produto, orcamento):
     try:
-        params = {"hl": "pt-br", "gl": "br", "google_domain": "google.com.br", "currency": "BRL", "api_key": SERPAPI_KEY}
+        # A tag 'device': 'desktop' força o Google a não usar links de App/Mobile
+        params = {"hl": "pt-br", "gl": "br", "google_domain": "google.com.br", "currency": "BRL", "device": "desktop", "api_key": SERPAPI_KEY}
         
         if "Filtros" in metodo: 
             query = f"{produto_base}"
@@ -160,18 +182,15 @@ def buscar_produtos_google(metodo, produto_base, marca, termos_excluir, link_pro
                 
                 if preco <= orcamento:
                     titulo = item.get("title", "")
+                    link_bruto = item.get("link", "")
+                    link_alt = item.get("product_link", "")
                     
-                    # Usa o link nativo da loja
-                    link_oferta = item.get("link", "")
+                    # Usa o extrator matemático para pegar a URL limpa da Loja
+                    link_oferta = extrair_link_direto(link_bruto, link_alt)
                     
-                    # Se o link nativo for aquele problemático, tenta usar o link oficial de comparação da API
-                    if "ibp=oshop" in link_oferta:
-                        link_oferta = item.get("product_link", "")
-                        
-                    # Se mesmo assim falhar, cria uma busca limpa
                     if not link_oferta or not link_oferta.startswith("http"):
                         link_oferta = f"https://www.google.com.br/search?tbm=shop&q={urllib.parse.quote(titulo)}"
-                    
+                        
                     encontrados.append({
                         "nome": titulo,
                         "total": preco, 
@@ -182,7 +201,6 @@ def buscar_produtos_google(metodo, produto_base, marca, termos_excluir, link_pro
         
         elif "product_results" in res:
             nome_produto = res.get("product_results", {}).get("title", "Produto Rastreado")
-            # Link da página de comparação retornado diretamente pela SerpApi (nada de inventar URLs)
             link_matriz = res.get("product_results", {}).get("product_link", "")
             
             for seller in res.get("sellers_results", {}).get("online_sellers", []):
@@ -190,13 +208,13 @@ def buscar_produtos_google(metodo, produto_base, marca, termos_excluir, link_pro
                 preco = parse_price(preco_bruto)
                 
                 if preco <= orcamento:
-                    link_oferta = seller.get("link", "")
+                    link_bruto = seller.get("link", "")
                     
-                    if "ibp=oshop" in link_oferta or not link_oferta.startswith("http"):
-                        if link_matriz:
-                            link_oferta = link_matriz
-                        else:
-                            link_oferta = f"https://www.google.com.br/search?tbm=shop&q={urllib.parse.quote(nome_produto)}"
+                    # Usa o extrator matemático para pegar a URL limpa da Loja
+                    link_oferta = extrair_link_direto(link_bruto, link_matriz)
+                    
+                    if not link_oferta or not link_oferta.startswith("http"):
+                        link_oferta = f"https://www.google.com.br/search?tbm=shop&q={urllib.parse.quote(nome_produto)}"
                         
                     encontrados.append({
                         "nome": nome_produto,
@@ -508,7 +526,7 @@ with aba_nova_busca:
                         else:
                             st.write(f"💰 **R$ {r['total']:,.2f}** | 🏬 Loja: {r['loja']}")
                             st.write(f"📦 {r['nome']}")
-                            st.markdown(f"[🔗 Acessar Oferta]({r['link']})")
+                            st.markdown(f"[🔗 Acessar Oferta Direta]({r['link']})")
             else: 
                 st.warning(f"🔔 ORÇAMENTO SALVO! O robô ficará vigiando, mas não enviou alerta agora porque não encontrou nenhuma opção no teto de R$ {orc_max}.")
 
