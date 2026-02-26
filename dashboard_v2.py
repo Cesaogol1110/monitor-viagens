@@ -1,4 +1,4 @@
-# código final 26/02/2026 - ENCURTADOR UNIVERSAL (TINYURL) E FIM DE ROTAS INVENTADAS
+# código final 20/01/2026
 # dashboard_v2.py
 import streamlit as st
 import datetime
@@ -63,37 +63,32 @@ def parse_price(val):
     try: return float(num_str)
     except: return 999999.0
 
-def obter_link_seguro(link_bruto):
-    """Usa o link original exato, mas encurta-o para não travar o HTML ou o Twilio."""
-    if not link_bruto: return ""
+def obter_link_seguro(link_loja, link_produto, titulo):
+    """Constrói URLs blindadas, nunca cortando links ao meio."""
+    # 1. Tenta extrair a URL pura escondida
+    try:
+        if link_loja:
+            qs = urllib.parse.parse_qs(urllib.parse.urlparse(link_loja).query)
+            for param in ['adurl', 'url', 'q']:
+                if param in qs and str(qs[param][0]).startswith('http'):
+                    url_ext = str(qs[param][0])
+                    # Só confia se a URL extraída não for um monstro gigante
+                    if len(url_ext) < 300: 
+                        return url_ext
+    except: pass
     
-    # Remove aspas que corrompem o HTML do Streamlit (causador do erro ~/+/)
-    link_limpo = str(link_bruto).replace('"', '%22').replace("'", "%27")
-    
-    # Se o link já for razoavelmente curto, usa direto
-    if len(link_limpo) < 250:
-        return link_limpo
+    # 2. Se o link original da loja já for limpo e seguro
+    if link_loja and link_loja.startswith("http") and len(link_loja) < 300 and "ibp=oshop" not in link_loja:
+        return link_loja
         
-    # Se for gigante, encurta usando a API gratuita e confiável do TinyURL
-    try:
-        url_encode = urllib.parse.quote(link_limpo)
-        res = requests.get(f"https://tinyurl.com/api-create.php?url={url_encode}", timeout=4)
-        if res.status_code == 200 and "tinyurl.com" in res.text:
-            return res.text.strip()
-    except: pass
-    
-    # Plano C: Tenta extrair a URL limpa de dentro dos parâmetros do Google
-    try:
-        qs = urllib.parse.parse_qs(urllib.parse.urlparse(link_limpo).query)
-        for param in ['adurl', 'url', 'q']:
-            if param in qs and str(qs[param][0]).startswith('http'):
-                url_ext = str(qs[param][0])
-                if len(url_ext) < 250:
-                    return urllib.parse.quote(url_ext, safe=":/&?=#-_.")
-    except: pass
-    
-    # Último recurso cego: corta o link brutalmente para não dar crash no WhatsApp
-    return link_limpo[:250]
+    # 3. Usa o catálogo matriz oficial da SerpApi
+    if link_produto and link_produto.startswith("http") and len(link_produto) < 300:
+        return link_produto
+        
+    # 4. Plano de Fuga Blindado: Recria uma busca limpa no Google Shopping
+    # Limpa o título de aspas e parênteses que poderiam quebrar o HTML
+    titulo_limpo = re.sub(r'[^a-zA-Z0-9 ]', '', str(titulo))[:50].strip()
+    return f"https://www.google.com.br/search?tbm=shop&q={urllib.parse.quote(titulo_limpo)}"
 
 # ==========================================
 # MOTORES DE BUSCA: VIAGENS
@@ -189,11 +184,12 @@ def buscar_produtos_google(metodo, produto_base, marca, termos_excluir, link_pro
                 preco = parse_price(preco_bruto)
                 
                 if preco <= orcamento:
-                    titulo = item.get("title", "")
+                    titulo = item.get("title", "Produto")
                     link_bruto = item.get("link", "")
+                    link_produto_api = item.get("product_link", "")
                     loja = item.get("source", "Loja não informada")
                     
-                    link_final = obter_link_seguro(link_bruto)
+                    link_final = obter_link_seguro(link_bruto, link_produto_api, titulo)
                         
                     encontrados.append({
                         "nome": titulo,
@@ -205,6 +201,7 @@ def buscar_produtos_google(metodo, produto_base, marca, termos_excluir, link_pro
         
         elif "product_results" in res:
             nome_produto = res.get("product_results", {}).get("title", "Produto Rastreado")
+            link_matriz = res.get("product_results", {}).get("product_link", "")
             
             for seller in res.get("sellers_results", {}).get("online_sellers", []):
                 preco_bruto = seller.get("base_price")
@@ -214,7 +211,7 @@ def buscar_produtos_google(metodo, produto_base, marca, termos_excluir, link_pro
                     link_bruto = seller.get("link", "")
                     loja = seller.get("name", "Loja não informada")
                     
-                    link_final = obter_link_seguro(link_bruto)
+                    link_final = obter_link_seguro(link_bruto, link_matriz, nome_produto)
                         
                     encontrados.append({
                         "nome": nome_produto,
@@ -439,7 +436,7 @@ with aba_nova_busca:
     else:
         st.header("📦 Monitoramento de Preços de Produtos")
         
-        st.info("⚠️ **Aviso de Cache:** O Google armazena preços em tempo real, mas as lojas podem esgotar o estoque subitamente. O link gerado agora levará você diretamente à loja. Se a página der erro ou preço maior, a oferta expirou.")
+        st.info("⚠️ **Aviso de Sincronia:** O robô varre os servidores de retaguarda do Google em tempo real. Se uma loja esgotar o estoque da promoção repentinamente, o link levará a uma página expirada ou com o valor antigo.")
         
         metodo_busca = st.radio("Escolha o Método de Rastreio:", ["Busca por Filtros (Avançada)", "Rastrear Link Específico (Google Shopping)"])
         
@@ -472,7 +469,7 @@ with aba_nova_busca:
         hora_a = st.time_input("Horário Base do Alerta", datetime.time(9, 45))
 
     if st.button("Buscar e Salvar Automação", type="primary", use_container_width=True):
-        with st.spinner("🚀 Gerando Links Seguros via TinyURL..."):
+        with st.spinner("🚀 Extraindo URLs seguras do Google..."):
             cod = str(uuid.uuid4())[:6].upper()
             hoje_str = datetime.datetime.now().strftime("%Y-%m-%d")
             historico_precos = {}
@@ -517,7 +514,6 @@ with aba_nova_busca:
                     st.error(f"⚠️ Salvo, mas o Twilio bloqueou: {erro_wa}")
                 
                 st.subheader("🔎 Opções Encontradas Agora:")
-                # HTML renderizado com link blindado (sem chance de ter aspas extras)
                 for r in resultados:
                     with st.container(border=True):
                         if tipo_monitoramento == "✈️ Viagens (Voo + Hotel)":
@@ -530,7 +526,7 @@ with aba_nova_busca:
                         else:
                             st.write(f"💰 **R$ {r['total']:,.2f}** | 🏬 Loja: {r['loja']}")
                             st.write(f"📦 {r['nome']}")
-                            st.markdown(f'<a href="{r["link"]}" target="_blank" style="font-weight:bold;">🔗 Acessar Oferta (TinyURL Seguro)</a>', unsafe_allow_html=True)
+                            st.markdown(f'<a href="{r["link"]}" target="_blank" style="font-weight:bold;">🔗 Acessar Oferta Direta</a>', unsafe_allow_html=True)
             else: 
                 st.warning(f"🔔 ORÇAMENTO SALVO! O robô ficará vigiando, mas não enviou alerta agora porque não encontrou nenhuma opção no teto de R$ {orc_max}.")
 
