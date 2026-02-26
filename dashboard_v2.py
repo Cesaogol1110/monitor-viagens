@@ -1,4 +1,4 @@
-# código final 26/02/2026 - ESTRATÉGIA DE BUSCA AVANÇADA DIRETO NA LOJA
+# código final 20/01/2026
 # dashboard_v2.py
 import streamlit as st
 import datetime
@@ -65,7 +65,6 @@ def parse_price(val):
 
 def obter_link_seguro(link_bruto, titulo, loja):
     """Estratégia de Busca Avançada sugerida pelo usuário: Ignora o Google e busca dentro da loja."""
-    # 1. Se tiver URL limpa original da loja
     if link_bruto and "google.com" not in link_bruto and link_bruto.startswith("http") and len(link_bruto) < 300:
         return link_bruto
 
@@ -77,10 +76,7 @@ def obter_link_seguro(link_bruto, titulo, loja):
                 if len(url_ext) < 300: return url_ext
     except: pass
 
-    # 2. MOTOR DE BUSCA AVANÇADA INTERNA NAS LOJAS
     loja_key = str(loja).lower().strip()
-    
-    # Extrai as 4 palavras-chave principais do produto para a busca
     palavras = [p for p in titulo.split() if len(p) > 1][:4]
     termo_url = urllib.parse.quote(" ".join(palavras))
     termo_ml = "-".join(palavras).replace("%", "")
@@ -102,12 +98,10 @@ def obter_link_seguro(link_bruto, titulo, loja):
         "americanas": f"https://www.americanas.com.br/busca/{termo_url}"
     }
 
-    # Se a loja do Google bater com nosso dicionário VIP, redireciona direto para o buscador deles
     for key, url_loja in STORE_SEARCH_URLS.items():
         if key in loja_key:
             return url_loja
 
-    # 3. Fallback Seguro no Google Shopping com restrição de aspas (Nome Exato)
     termo_exato = f'"{titulo[:40]}"'
     return f"https://www.google.com.br/search?tbm=shop&q={urllib.parse.quote(termo_exato)}"
 
@@ -261,7 +255,7 @@ def enviar_alerta_whatsapp_painel(numero, itens, codigo, tipo_monitoramento="via
         else:
             msg = f"📦 *{len(itens)} OFERTAS DE PRODUTO!* (Cód: {codigo})\n\n"
             for i, p in enumerate(itens, 1):
-                msg += f"{i}️⃣ *R$ {p['total']:,.2f}* na loja {p['loja']}\n🛒 {p['nome'][:45]}...\n🔗 Acesse Aqui: {p['link']}\n\n"
+                msg += f"{i}️⃣ *R$ {p['total']:,.2f}* na loja {p['loja']}\n🛒 {p['nome'][:45]}...\n🔗 Link: {p['link']}\n\n"
                 
         msg += "O sistema continuará monitorando na frequência escolhida!"
         
@@ -454,17 +448,21 @@ with aba_nova_busca:
                 
     else:
         st.header("📦 Monitoramento de Preços de Produtos")
+        
+        # AVISO DE PROTEÇÃO PARA GERENCIAR EXPECTATIVAS DO USUÁRIO
+        st.info("⚠️ **Como o Robô Funciona:** A nossa inteligência captura preços em tempo real dos bastidores do Google. Promoções relâmpago de Pix ou descontos ocultos podem esgotar na loja antes mesmo do seu clique. Se o preço na loja for maior, a oferta expirou.")
+        
         metodo_busca = st.radio("Escolha o Método de Rastreio:", ["Busca por Filtros (Avançada)", "Rastrear Link Específico (Google Shopping)"])
         
         if metodo_busca == "Busca por Filtros (Avançada)":
-            st.info("💡 Exemplo: Produto Base: 'Patinete Elétrico', Marca: 'Xiaomi', Excluir: 'pneu, carregador, infantil'")
+            st.caption("💡 Exemplo: Produto Base: 'Patinete Elétrico', Marca: 'Xiaomi', Excluir: 'pneu, carregador, infantil'")
             cP1, cP2 = st.columns(2)
             with cP1: prod_base = st.text_input("Produto Base (Obrigatório)", placeholder="Ex: iPhone 15 Pro Max")
             with cP2: prod_marca = st.text_input("Marca / Modelo", placeholder="Ex: Apple")
             prod_excluir = st.text_input("Palavras a Excluir (separadas por vírgula)", placeholder="Ex: capa, película, acessório, usado")
             link_produto = ""
         else:
-            st.info("💡 Encontre o produto no Google Shopping, copie o link e cole abaixo para rastrear a tabela de preços do item exato.")
+            st.caption("💡 Cole o link da página do Google Shopping aqui para rastrear a tabela de preços do item exato.")
             link_produto = st.text_input("Cole o Link do Google Shopping aqui:")
             prod_base = "Produto por Link"
             prod_marca = ""
@@ -542,7 +540,7 @@ with aba_nova_busca:
                         else:
                             st.write(f"💰 **R$ {r['total']:,.2f}** | 🏬 Loja: {r['loja']}")
                             st.write(f"📦 {r['nome']}")
-                            st.markdown(f'<a href="{r["link"]}" target="_blank" style="font-weight:bold;">🔗 Acessar Oferta (Busca Avançada na Loja)</a>', unsafe_allow_html=True)
+                            st.markdown(f'<a href="{r["link"]}" target="_blank" style="font-weight:bold;">🔗 Acessar Oferta Direta</a>', unsafe_allow_html=True)
             else: 
                 st.warning(f"🔔 ORÇAMENTO SALVO! O robô ficará vigiando, mas não enviou alerta agora porque não encontrou nenhuma opção no teto de R$ {orc_max}.")
 
