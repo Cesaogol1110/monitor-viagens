@@ -74,7 +74,6 @@ if not st.session_state["autenticado"]:
     st.write("Bem-vindo ao robô inteligente de busca de passagens e hotéis.")
     
     with st.container(border=True):
-        # NOVAS ABAS INCLUÍDAS
         aba_login, aba_cadastro, aba_esqueci, aba_admin = st.tabs(["🔐 Fazer Login", "🆕 Ativar Conta", "❓ Esqueci a Senha", "👑 Admin"])
         
         with aba_login:
@@ -87,6 +86,13 @@ if not st.session_state["autenticado"]:
                 if tel_login in usuarios and usuarios[tel_login]["senha"] == senha_login:
                     st.session_state["autenticado"] = True
                     st.session_state["usuario_logado"] = tel_login
+                    
+                    # Verifica se o usuário precisa trocar a senha provisória
+                    if usuarios[tel_login].get("precisa_trocar_senha", False) or senha_login == "123456":
+                        st.session_state["exigir_troca_senha"] = True
+                    else:
+                        st.session_state["exigir_troca_senha"] = False
+                        
                     st.rerun()
                 else:
                     st.error("❌ Telefone ou senha incorretos.")
@@ -109,15 +115,15 @@ if not st.session_state["autenticado"]:
                     if novo_tel in usuarios:
                         st.warning("⚠️ Este telefone já possui conta. Por favor, faça o login na aba ao lado.")
                     else:
-                        usuarios[novo_tel] = {"senha": nova_senha, "data_cadastro": str(datetime.date.today())}
+                        usuarios[novo_tel] = {"senha": nova_senha, "data_cadastro": str(datetime.date.today()), "precisa_trocar_senha": False}
                         salvar_usuarios(usuarios)
                         st.success("✅ Conta criada com sucesso! Salvando nas nuvens...")
                         st.session_state["autenticado"] = True
                         st.session_state["usuario_logado"] = novo_tel
+                        st.session_state["exigir_troca_senha"] = False
                         time.sleep(1)
                         st.rerun()
         
-        # NOVO: SISTEMA DE RECUPERAÇÃO VIA WHATSAPP
         with aba_esqueci:
             st.subheader("Recuperar Senha")
             st.write("Enviaremos uma nova senha gerada pelo sistema para o seu WhatsApp.")
@@ -128,9 +134,10 @@ if not st.session_state["autenticado"]:
                 if tel_recuperar in usuarios:
                     nova_senha_random = str(random.randint(100000, 999999))
                     usuarios[tel_recuperar]["senha"] = nova_senha_random
+                    usuarios[tel_recuperar]["precisa_trocar_senha"] = True # Marca que a senha é provisória
                     salvar_usuarios(usuarios)
                     
-                    msg_recuperacao = f"🔐 *Monitor ARCA - Recuperação de Acesso*\n\nSua senha foi redefinida. A sua nova senha provisória é: *{nova_senha_random}*\n\nVolte ao aplicativo para fazer o login."
+                    msg_recuperacao = f"🔐 *Monitor ARCA - Recuperação de Acesso*\n\nSua senha foi redefinida. A sua nova senha provisória é: *{nova_senha_random}*\n\nFaça o login com ela. O sistema exigirá que você crie uma nova senha em seguida."
                     sucesso_wa, erro_wa = testar_alerta_whatsapp(tel_recuperar, msg_recuperacao)
                     
                     if sucesso_wa:
@@ -140,7 +147,6 @@ if not st.session_state["autenticado"]:
                 else:
                     st.error("❌ Telefone não encontrado no banco de dados.")
 
-        # NOVO: PAINEL DE GESTÃO DO MASTER (CESAR)
         with aba_admin:
             st.subheader("Painel de Gestão Master")
             senha_admin = st.text_input("Senha Master:", type="password", key="admin_pwd")
@@ -156,8 +162,9 @@ if not st.session_state["autenticado"]:
                     
                     if st.button("Forçar Reset de Senha (Padrão: 123456)"):
                         usuarios_bd[user_to_reset]["senha"] = "123456"
+                        usuarios_bd[user_to_reset]["precisa_trocar_senha"] = True # Força a tela de troca
                         salvar_usuarios(usuarios_bd)
-                        st.success(f"✅ Senha do cliente {user_to_reset} alterada para '123456' com sucesso.")
+                        st.success(f"✅ Senha do cliente {user_to_reset} resetada. Ele terá que criar uma nova ao entrar.")
                 else:
                     st.info("Nenhum usuário cadastrado no banco de dados ainda.")
 
@@ -166,6 +173,36 @@ if not st.session_state["autenticado"]:
     st.markdown("### [🛒 **Clique aqui para Assinar e Liberar seu Acesso**](https://buy.stripe.com/test_4gM28r8YbgXQ0et0sZaAw00)") 
     
     st.stop()
+
+# ==========================================
+# TELA OBRIGATÓRIA DE TROCA DE SENHA (NOVO)
+# ==========================================
+if st.session_state.get("exigir_troca_senha", False):
+    st.title("🔐 Atualização de Senha Obrigatória")
+    st.warning("Detectamos que você está usando uma senha provisória. Por motivos de segurança, crie sua senha definitiva abaixo.")
+    
+    with st.container(border=True):
+        nova_senha_1 = st.text_input("Digite a Nova Senha:", type="password", key="ns1")
+        nova_senha_2 = st.text_input("Repita a Nova Senha:", type="password", key="ns2")
+        
+        if st.button("Salvar Senha e Entrar no Sistema", type="primary", use_container_width=True):
+            if not nova_senha_1:
+                st.error("⚠️ A senha não pode ficar em branco.")
+            elif nova_senha_1 != nova_senha_2:
+                st.error("❌ As senhas não coincidem. Digite novamente.")
+            else:
+                usuarios = carregar_usuarios()
+                user = st.session_state["usuario_logado"]
+                usuarios[user]["senha"] = nova_senha_1
+                usuarios[user]["precisa_trocar_senha"] = False # Retira a trava
+                salvar_usuarios(usuarios)
+                
+                st.session_state["exigir_troca_senha"] = False
+                st.success("✅ Senha atualizada com sucesso! A carregar o painel...")
+                time.sleep(1)
+                st.rerun()
+                
+    st.stop() # Isto impede que o robô mostre os voos antes da senha ser trocada!
 
 # ==========================================
 # DICIONÁRIOS E FUNÇÕES DE BUSCA
