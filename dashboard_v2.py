@@ -47,7 +47,7 @@ def salvar_bd(dados):
     requests.put(f"{FIREBASE_URL}/monitoramentos.json", json=dados)
 
 # ==========================================
-# FUNÇÕES DE LIMPEZA E ENGENHARIA DE LINKS
+# FUNÇÕES DE LIMPEZA E EXTRATOR ESTRITO
 # ==========================================
 def parse_price(val):
     if val is None: return 999999.0
@@ -63,32 +63,33 @@ def parse_price(val):
     try: return float(num_str)
     except: return 999999.0
 
-def obter_link_seguro(link_loja, link_produto, titulo):
-    """Constrói URLs blindadas, nunca cortando links ao meio."""
-    # 1. Tenta extrair a URL pura escondida
+def obter_link_direto_ou_nada(link_bruto):
+    """
+    Extrator Estrito: Rasga o rastreio do Google. 
+    Se achar o link direto da loja, devolve. 
+    Se for página genérica do Google, devolve None (Rejeita).
+    """
+    if not link_bruto: return None
+    
+    parsed = urllib.parse.urlparse(str(link_bruto))
+    
+    # Se já é um link de loja direta (ex: casasbahia.com.br, mercadolivre.com.br)
+    if "google" not in parsed.netloc and parsed.scheme in ['http', 'https']:
+        return str(link_bruto)
+        
+    # Se for link do Google, garimpa a URL da loja nos parâmetros
     try:
-        if link_loja:
-            qs = urllib.parse.parse_qs(urllib.parse.urlparse(link_loja).query)
-            for param in ['adurl', 'url', 'q']:
-                if param in qs and str(qs[param][0]).startswith('http'):
-                    url_ext = str(qs[param][0])
-                    # Só confia se a URL extraída não for um monstro gigante
-                    if len(url_ext) < 300: 
-                        return url_ext
+        qs = urllib.parse.parse_qs(parsed.query)
+        for param in ['adurl', 'url']: # Parâmetros onde o Google esconde a URL alvo
+            if param in qs:
+                target = str(qs[param][0])
+                target_parsed = urllib.parse.urlparse(target)
+                if target.startswith('http') and "google" not in target_parsed.netloc:
+                    return target
     except: pass
     
-    # 2. Se o link original da loja já for limpo e seguro
-    if link_loja and link_loja.startswith("http") and len(link_loja) < 300 and "ibp=oshop" not in link_loja:
-        return link_loja
-        
-    # 3. Usa o catálogo matriz oficial da SerpApi
-    if link_produto and link_produto.startswith("http") and len(link_produto) < 300:
-        return link_produto
-        
-    # 4. Plano de Fuga Blindado: Recria uma busca limpa no Google Shopping
-    # Limpa o título de aspas e parênteses que poderiam quebrar o HTML
-    titulo_limpo = re.sub(r'[^a-zA-Z0-9 ]', '', str(titulo))[:50].strip()
-    return f"https://www.google.com.br/search?tbm=shop&q={urllib.parse.quote(titulo_limpo)}"
+    # Se não conseguimos o link exato da loja, retornamos nulo para descartar a oferta.
+    return None
 
 # ==========================================
 # MOTORES DE BUSCA: VIAGENS
@@ -184,39 +185,40 @@ def buscar_produtos_google(metodo, produto_base, marca, termos_excluir, link_pro
                 preco = parse_price(preco_bruto)
                 
                 if preco <= orcamento:
-                    titulo = item.get("title", "Produto")
-                    link_bruto = item.get("link", "")
-                    link_produto_api = item.get("product_link", "")
-                    loja = item.get("source", "Loja não informada")
+                    # TENTA PEGAR O LINK DIRETO EXATO
+                    link_final = obter_link_direto_ou_nada(item.get("link", ""))
                     
-                    link_final = obter_link_seguro(link_bruto, link_produto_api, titulo)
+                    # SE NÃO TIVER LINK DIRETO, DESCARTA O PRODUTO E PULA PARA O PRÓXIMO
+                    if not link_final:
+                        continue
                         
                     encontrados.append({
-                        "nome": titulo,
+                        "nome": item.get("title", "Produto"),
                         "total": preco, 
-                        "loja": loja,
+                        "loja": item.get("source", "Loja não informada"),
                         "link": link_final
                     })
                     if len(encontrados) >= 5: break
         
         elif "product_results" in res:
             nome_produto = res.get("product_results", {}).get("title", "Produto Rastreado")
-            link_matriz = res.get("product_results", {}).get("product_link", "")
             
             for seller in res.get("sellers_results", {}).get("online_sellers", []):
                 preco_bruto = seller.get("base_price")
                 preco = parse_price(preco_bruto)
                 
                 if preco <= orcamento:
-                    link_bruto = seller.get("link", "")
-                    loja = seller.get("name", "Loja não informada")
+                    # TENTA PEGAR O LINK DIRETO EXATO
+                    link_final = obter_link_direto_ou_nada(seller.get("link", ""))
                     
-                    link_final = obter_link_seguro(link_bruto, link_matriz, nome_produto)
+                    # SE NÃO TIVER LINK DIRETO, DESCARTA
+                    if not link_final:
+                        continue
                         
                     encontrados.append({
                         "nome": nome_produto,
                         "total": preco,
-                        "loja": loja,
+                        "loja": seller.get("name", "Loja não informada"),
                         "link": link_final
                     })
                     if len(encontrados) >= 5: break
@@ -242,7 +244,7 @@ def enviar_alerta_whatsapp_painel(numero, itens, codigo, tipo_monitoramento="via
         else:
             msg = f"📦 *{len(itens)} OFERTAS DE PRODUTO!* (Cód: {codigo})\n\n"
             for i, p in enumerate(itens, 1):
-                msg += f"{i}️⃣ *R$ {p['total']:,.2f}* na loja {p['loja']}\n🛒 {p['nome'][:45]}...\n🔗 Acesse Aqui: {p['link']}\n\n"
+                msg += f"{i}️⃣ *R$ {p['total']:,.2f}* na loja {p['loja']}\n🛒 {p['nome'][:45]}...\n🔗 Acesse Diretamente a Oferta: {p['link']}\n\n"
                 
         msg += "O sistema continuará monitorando na frequência escolhida!"
         
@@ -436,7 +438,7 @@ with aba_nova_busca:
     else:
         st.header("📦 Monitoramento de Preços de Produtos")
         
-        st.info("⚠️ **Aviso de Sincronia:** O robô varre os servidores de retaguarda do Google em tempo real. Se uma loja esgotar o estoque da promoção repentinamente, o link levará a uma página expirada ou com o valor antigo.")
+        st.info("⚠️ **Modo Link Exato Ativado:** O sistema agora rejeita automaticamente resultados que levam para páginas genéricas de pesquisa. Se o robô não encontrar o link final exato da loja para o produto, a oferta será descartada para manter a sua pesquisa limpa.")
         
         metodo_busca = st.radio("Escolha o Método de Rastreio:", ["Busca por Filtros (Avançada)", "Rastrear Link Específico (Google Shopping)"])
         
@@ -469,7 +471,7 @@ with aba_nova_busca:
         hora_a = st.time_input("Horário Base do Alerta", datetime.time(9, 45))
 
     if st.button("Buscar e Salvar Automação", type="primary", use_container_width=True):
-        with st.spinner("🚀 Extraindo URLs seguras do Google..."):
+        with st.spinner("🚀 Minerando apenas links diretos de lojas..."):
             cod = str(uuid.uuid4())[:6].upper()
             hoje_str = datetime.datetime.now().strftime("%Y-%m-%d")
             historico_precos = {}
@@ -528,7 +530,7 @@ with aba_nova_busca:
                             st.write(f"📦 {r['nome']}")
                             st.markdown(f'<a href="{r["link"]}" target="_blank" style="font-weight:bold;">🔗 Acessar Oferta Direta</a>', unsafe_allow_html=True)
             else: 
-                st.warning(f"🔔 ORÇAMENTO SALVO! O robô ficará vigiando, mas não enviou alerta agora porque não encontrou nenhuma opção no teto de R$ {orc_max}.")
+                st.warning(f"🔔 NENHUMA OPÇÃO COM LINK DIRETO ENCONTRADA no teto de R$ {orc_max}. O robô ficará vigiando o mercado até que apareçam links limpos e diretos para o produto.")
 
 with aba_historico:
     st.subheader("📉 Análise de Tendência de Preços")
