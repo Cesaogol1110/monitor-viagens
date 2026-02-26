@@ -355,7 +355,7 @@ def buscar_pacotes_completos(tipo_voo, origem, destino, incluir_hospedagem, cida
     except Exception as e: return {"status": "erro", "mensagem": f"Falha na comunicação: {str(e)}"}
 
 # ==========================================
-# MOTOR DE FUNDO (ATUALIZADO COM O AJUSTE DE HORA)
+# MOTOR DE FUNDO
 # ==========================================
 def processar_disparo(cod, info, hoje):
     res = buscar_pacotes_completos(
@@ -410,7 +410,6 @@ def loop_vigilante():
                     horario_alvo = info.get("horario", "18:00")
                     ultimo_disparo = info.get("ultimo_disparo", "")
                     
-                    # AJUSTE CHAVE: A hora de agora deve ser igual ou maior que a hora alvo
                     if agora >= horario_alvo and ultimo_disparo != hoje:
                         if processar_disparo(cod, info, hoje):
                             houve_mudanca = True
@@ -447,7 +446,6 @@ with st.sidebar.expander("📂 Consultar Orçamentos Salvos"):
             st.markdown(f"**Código:** `{codigo}`")
             st.write(f"Status: {status_monitoramento}")
             
-            # NOVO: BOTÃO PARA FORÇAR O DISPARO E TESTAR NA HORA
             if info.get("monitorar"):
                 if st.button(f"⚡ Testar Disparo Agora", key=f"testar_{codigo}"):
                     fuso_br = datetime.timezone(datetime.timedelta(hours=-3))
