@@ -41,24 +41,35 @@ def parse_price(val):
     try: return float(num_str)
     except: return 999999.0
 
-def obter_link_direto_ou_nada(link_bruto):
-    if not link_bruto: return None
-    parsed = urllib.parse.urlparse(str(link_bruto))
+def obter_link_direto_ou_catalogo(item):
+    link_bruto = item.get("link", "")
     
-    if "google" not in parsed.netloc and parsed.scheme in ['http', 'https']:
-        return str(link_bruto)
+    if link_bruto and "google.com" not in link_bruto and link_bruto.startswith("http"):
+        return link_bruto
         
     try:
-        qs = urllib.parse.parse_qs(parsed.query)
-        for param in ['adurl', 'url']:
+        qs = urllib.parse.parse_qs(urllib.parse.urlparse(link_bruto).query)
+        for param in ['adurl', 'url', 'q']:
             if param in qs:
                 target = str(qs[param][0])
-                target_parsed = urllib.parse.urlparse(target)
-                if target.startswith('http') and "google" not in target_parsed.netloc:
+                if target.startswith('http') and "google.com" not in target:
                     return target
     except: pass
     
-    return None
+    if link_bruto and "google.com" in link_bruto and ("url?" in link_bruto or "aclk?" in link_bruto):
+        try:
+            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+            res = requests.get(link_bruto, headers=headers, allow_redirects=False, timeout=2)
+            loc = res.headers.get('Location', '')
+            if loc and "google.com" not in loc and loc.startswith("http"):
+                return loc
+        except: pass
+
+    link_catalogo = item.get("product_link", "")
+    if link_catalogo and link_catalogo.startswith("http"):
+        return link_catalogo
+
+    return link_bruto
 
 def buscar_hoteis_google(cidade, ida, volta, adultos, criancas, idades, quartos, orcamento_parcial):
     url = "https://serpapi.com/search.json"
@@ -143,14 +154,13 @@ def buscar_produtos_google(metodo, produto_base, marca, termos_excluir, link_pro
                 preco = parse_price(preco_bruto)
                 
                 if preco <= orcamento:
-                    link_final = obter_link_direto_ou_nada(item.get("link", ""))
-                    if not link_final:
-                        continue
+                    link_final = obter_link_direto_ou_catalogo(item)
+                    if not link_final: continue
                         
                     encontrados.append({
                         "nome": item.get("title", "Produto"),
                         "total": preco, 
-                        "loja": item.get("source", "Loja não informada"),
+                        "loja": item.get("source", "Catálogo Google" if "google.com" in link_final else item.get("source", "Loja")),
                         "link": link_final
                     })
                     if len(encontrados) >= 5: break
@@ -163,9 +173,8 @@ def buscar_produtos_google(metodo, produto_base, marca, termos_excluir, link_pro
                 preco = parse_price(preco_bruto)
                 
                 if preco <= orcamento:
-                    link_final = obter_link_direto_ou_nada(seller.get("link", ""))
-                    if not link_final:
-                        continue
+                    link_final = obter_link_direto_ou_catalogo(seller)
+                    if not link_final: continue
                         
                     encontrados.append({
                         "nome": nome_produto,
@@ -193,7 +202,7 @@ def enviar_alerta_whatsapp(numero, itens, codigo, tipo_monitoramento, freq):
         else:
             msg = f"⏰ *ALERTA {freq.upper()}!* {len(itens)} OFERTAS DE PRODUTO (Cód: {codigo})\n\n"
             for i, p in enumerate(itens, 1):
-                msg += f"{i}️⃣ *R$ {p['total']:,.2f}* na loja {p['loja']}\n🛒 {p['nome'][:45]}...\n🔗 Acesse Diretamente a Oferta: {p['link']}\n\n"
+                msg += f"{i}️⃣ *R$ {p['total']:,.2f}* na loja {p['loja']}\n🛒 {p['nome'][:45]}...\n🔗 Acesse a Oferta: {p['link']}\n\n"
         
         num_limpo = str(numero).strip().replace("-", "").replace(" ", "").replace("+", "").replace("whatsapp:", "")
         if len(num_limpo) == 10 or len(num_limpo) == 11:
