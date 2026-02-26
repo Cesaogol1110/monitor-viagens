@@ -1,4 +1,4 @@
-# código final 26/02/2026 - VERSÃO INTEGRAL COM BANCO DE AEROPORTOS GLOBAL
+# código final 26/02/2026 - VERSÃO SEM TRAVA ANTI-SPAM NA CRIAÇÃO
 # dashboard_v2.py
 import streamlit as st
 import datetime
@@ -317,11 +317,20 @@ with aba_nova_busca:
                 "monitorar": True, "telefone": tel_alerta, "horario": hora_a.strftime("%H:%M"),
                 "origem": AEROPORTOS[origem_n], "destino": AEROPORTOS[destino_n], "orcamento_max": orc_max,
                 "data_ida": ida_s, "data_volta": vlt_s, "adultos": adt, "criancas": cri, 
-                "ultimo_disparo": hoje_str if resultados else "", 
+                "ultimo_disparo": "",  # <--- REMOVI A TRAVA AQUI
                 "incluir_hospedagem": incluir_hospedagem, "cidade_hotel": cidade_hotel,
                 "historico": historico_precos
             }
             salvar_bd(bd_atual)
+            
+            # Avisos na tela (Opcional, mas útil para ver o que achou na hora)
+            if resultados:
+                st.success(f"✅ ORÇAMENTO {cod} ATIVADO! A busca instantânea já foi enviada.")
+                enviar_alerta_whatsapp(tel_alerta, resultados, cod)
+            else: 
+                st.warning(f"✅ ORÇAMENTO {cod} ATIVADO! Nenhuma opção no teto de R$ {orc_max}, mas o robô ficará vigiando.")
+            
+            time.sleep(1.5)
             st.rerun() 
 
 with aba_historico:
