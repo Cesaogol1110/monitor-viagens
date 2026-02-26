@@ -1,4 +1,4 @@
-# código final 26/02/2026 - VERSÃO CORREÇÃO DE LINKS E RESULTADOS NA TELA
+# código final 20/01/2026
 # dashboard_v2.py
 import streamlit as st
 import datetime
@@ -45,6 +45,23 @@ def carregar_bd():
 
 def salvar_bd(dados):
     requests.put(f"{FIREBASE_URL}/monitoramentos.json", json=dados)
+
+# ==========================================
+# FUNÇÃO DE LIMPEZA DE PREÇOS À PROVA DE BALAS
+# ==========================================
+def parse_price(val):
+    if val is None: return 999999.0
+    if isinstance(val, (int, float)): return float(val)
+    # Remove R$, espaços e converte para padrão matemático
+    val = str(val).upper().replace("R$", "").replace("BRL", "").strip()
+    if "." in val and "," in val:
+        val = val.replace(".", "").replace(",", ".")
+    elif "," in val:
+        val = val.replace(",", ".")
+    try:
+        return float(val)
+    except:
+        return 999999.0
 
 # ==========================================
 # MOTORES DE BUSCA: VIAGENS
@@ -96,7 +113,7 @@ def buscar_pacotes_completos(origem, destino, ida, volta, adt, cri, idades, orc_
     except: return []
 
 # ==========================================
-# MOTORES DE BUSCA: PRODUTOS (CORRIGIDO)
+# MOTORES DE BUSCA: PRODUTOS (COM PARSER INTELIGENTE)
 # ==========================================
 def buscar_produtos_google(metodo, produto_base, marca, termos_excluir, link_produto, orcamento):
     try:
@@ -124,9 +141,10 @@ def buscar_produtos_google(metodo, produto_base, marca, termos_excluir, link_pro
         
         if "shopping_results" in res:
             for item in res["shopping_results"]:
-                preco = item.get("extracted_price", item.get("price", 999999))
+                preco_bruto = item.get("extracted_price") or item.get("price")
+                preco = parse_price(preco_bruto)
+                
                 if preco <= orcamento:
-                    # NOVIDADE: Busca blindada para garantir que o link exista
                     titulo = item.get("title", "")
                     link_oferta = item.get("link") or item.get("product_link") or f"https://www.google.com/search?q={urllib.parse.quote(titulo)}&tbm=shop"
                     
@@ -141,7 +159,9 @@ def buscar_produtos_google(metodo, produto_base, marca, termos_excluir, link_pro
         elif "product_results" in res:
             nome_produto = res.get("product_results", {}).get("title", "Produto Rastreado")
             for seller in res.get("sellers_results", {}).get("online_sellers", []):
-                preco = seller.get("base_price", 999999)
+                preco_bruto = seller.get("base_price")
+                preco = parse_price(preco_bruto)
+                
                 if preco <= orcamento:
                     link_oferta = seller.get("link") or f"https://www.google.com/search?q={urllib.parse.quote(nome_produto)}&tbm=shop"
                     encontrados.append({
@@ -432,7 +452,7 @@ with aba_nova_busca:
 
             salvar_bd(bd_atual)
             
-            # NOVIDADE: AQUI MOSTRAMOS OS RESULTADOS NA TELA SEM APAGAR COM RERUN
+            # ATENÇÃO: RERUN REMOVIDO DAQUI PARA A TELA NÃO APAGAR.
             if resultados:
                 tipo_str = "viagem" if tipo_monitoramento == "✈️ Viagens (Voo + Hotel)" else "produto"
                 sucesso_wa, erro_wa = enviar_alerta_whatsapp_painel(tel_alerta, resultados, cod, tipo_str)
