@@ -1,4 +1,4 @@
-# código final 26/02/2026 - ROTA HÍBRIDA (SHOPPING + LOJA)
+# código final 26/02/2026 - ROTA ORGÂNICA DIRETA E FIM DOS INTERMEDIÁRIOS
 # dashboard_v2.py
 import streamlit as st
 import datetime
@@ -64,24 +64,25 @@ def parse_price(val):
     except: return 999999.0
 
 def obter_link_seguro(link_bruto, titulo, loja):
-    """Garante links curtos. Se o Google enviar 'lixo', busca no Shopping cruzando Loja + Produto."""
-    # 1. Se o link for direto da loja e for curto, usamos intacto.
-    if link_bruto and "google.com" not in link_bruto and link_bruto.startswith("http") and len(link_bruto) < 300:
-        return link_bruto
-        
-    # 2. Tenta extrair a URL pura escondida nos parâmetros do Google
+    """Extrai link limpo ou faz busca orgânica simples (Fim da Aba Shopping)."""
+    # 1. Tenta rasgar o rastreio do Google e pegar a URL verdadeira da loja
     try:
         if link_bruto:
             qs = urllib.parse.parse_qs(urllib.parse.urlparse(link_bruto).query)
             for param in ['adurl', 'url', 'q']:
                 if param in qs and str(qs[param][0]).startswith('http') and "google.com" not in qs[param][0]:
-                    if len(qs[param][0]) < 300: 
+                    if len(qs[param][0]) < 400: 
                         return str(qs[param][0])
     except: pass
+    
+    # 2. Se o link original já era direto da loja
+    if link_bruto and "google.com" not in link_bruto and link_bruto.startswith("http") and len(link_bruto) < 300:
+        return link_bruto
 
-    # 3. ROTA HÍBRIDA: Força o Google a pesquisar na aba SHOPPING combinando a Loja e o Título
-    termo_curto = f"{loja} {titulo}"[:60] 
-    return f"https://www.google.com.br/search?tbm=shop&q={urllib.parse.quote(termo_curto)}"
+    # 3. PLANO DE FUGA DEFINITIVO: Pesquisa ORGÂNICA limpa no Google (sem tbm=shop e sem site:)
+    # Ao pesquisar "Loja Produto", o Google coloca a loja original no primeiro resultado
+    termo = f"{loja} {titulo}"[:80] 
+    return f"https://www.google.com.br/search?q={urllib.parse.quote(termo)}"
 
 # ==========================================
 # MOTORES DE BUSCA: VIAGENS
@@ -233,7 +234,7 @@ def enviar_alerta_whatsapp_painel(numero, itens, codigo, tipo_monitoramento="via
         else:
             msg = f"📦 *{len(itens)} OFERTAS DE PRODUTO!* (Cód: {codigo})\n\n"
             for i, p in enumerate(itens, 1):
-                msg += f"{i}️⃣ *R$ {p['total']:,.2f}* na loja {p['loja']}\n🛒 {p['nome'][:45]}...\n🔗 Link: {p['link']}\n\n"
+                msg += f"{i}️⃣ *R$ {p['total']:,.2f}* na loja {p['loja']}\n🛒 {p['nome'][:45]}...\n🔗 Link da Loja: {p['link']}\n\n"
                 
         msg += "O sistema continuará monitorando na frequência escolhida!"
         
@@ -514,7 +515,7 @@ with aba_nova_busca:
                         else:
                             st.write(f"💰 **R$ {r['total']:,.2f}** | 🏬 Loja: {r['loja']}")
                             st.write(f"📦 {r['nome']}")
-                            st.markdown(f"[🔗 Acessar Oferta Direta]({r['link']})")
+                            st.markdown(f"[🔗 Acessar Oferta (Google Orgânico)]({r['link']})")
             else: 
                 st.warning(f"🔔 ORÇAMENTO SALVO! O robô ficará vigiando, mas não enviou alerta agora porque não encontrou nenhuma opção no teto de R$ {orc_max}.")
 
