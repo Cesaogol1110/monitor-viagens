@@ -1,4 +1,4 @@
-# código final 26/02/2026 - VERSÃO INTEGRAL COM FREQUÊNCIA DINÂMICA
+# código final 20/01/2026
 # dashboard_v2.py
 import streamlit as st
 import datetime
@@ -103,10 +103,18 @@ def enviar_alerta_whatsapp(numero, pacotes, codigo):
             if p['link_h']: msg += f"🔗 Hotel: {p['link_h']}\n"
             msg += "\n"
         msg += "O robô continuará monitorando na frequência escolhida!"
-        dest = f"whatsapp:{numero}" if not numero.startswith("whatsapp:") else numero
+        
+        # CORREÇÃO INTELIGENTE DO NÚMERO
+        num_limpo = str(numero).strip().replace("-", "").replace(" ", "").replace("+", "").replace("whatsapp:", "")
+        if len(num_limpo) == 10 or len(num_limpo) == 11:
+            num_limpo = f"55{num_limpo}"
+        dest = f"whatsapp:+{num_limpo}"
+        
         client.messages.create(from_=TWILIO_WHATSAPP_NUMBER, body=msg, to=dest)
         return True
-    except: return False
+    except Exception as e:
+        print(f"Erro WhatsApp: {e}")
+        return False
 
 # ==========================================
 # SISTEMA DE LOGIN E ADMIN
@@ -169,6 +177,13 @@ AEROPORTOS = {
 st.sidebar.title("🤖 Painel do Robô")
 st.sidebar.write(f"👤 Usuário: **{st.session_state['usuario_logado']}**")
 
+# --- BOTÃO DE SAIR RESTAURADO ---
+if st.sidebar.button("🚪 Sair (Logout)", use_container_width=True):
+    st.session_state["autenticado"] = False
+    st.session_state["usuario_logado"] = None
+    st.rerun()
+st.sidebar.divider()
+
 bd_atual = carregar_bd()
 
 # --- CARTÕES INTERATIVOS ---
@@ -185,7 +200,6 @@ with st.sidebar.expander("📂 Meus Orçamentos Salvos", expanded=True):
                 st.caption(f"🛫 **Rota:** {info.get('origem', 'N/A')} ➡️ {info.get('destino', 'N/A')}")
                 st.caption(f"📅 **Data:** {info.get('data_ida')}")
                 st.caption(f"💰 **Teto:** R$ {info.get('orcamento_max', 0):,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
-                # NOVIDADE: Mostrando a Frequência e o Horário Base
                 st.caption(f"⏰ **Freq:** {info.get('frequencia', 'Diariamente')} (Base: {info.get('horario', 'N/A')})") 
                 
                 col_b1, col_b2 = st.columns(2)
@@ -235,7 +249,6 @@ with aba_nova_busca:
         else:
             cidade_hotel = ""
 
-        # --- NOVIDADE: OPÇÕES DE FREQUÊNCIA NO PAINEL ---
         col_p1, col_p2 = st.columns(2)
         with col_p1:
             st.subheader("👥 Passageiros")
@@ -275,10 +288,10 @@ with aba_nova_busca:
             
             bd_atual[cod] = {
                 "monitorar": True, "telefone": tel_alerta, "horario": hora_a.strftime("%H:%M"),
-                "frequencia": freq_alerta, "data_criacao": hoje_str, # Campos novos
+                "frequencia": freq_alerta, "data_criacao": hoje_str,
                 "origem": AEROPORTOS[origem_n], "destino": AEROPORTOS[destino_n], "orcamento_max": orc_max,
                 "data_ida": ida_s, "data_volta": vlt_s, "adultos": adt, "criancas": cri, 
-                "ultimo_disparo": "", "ultimo_disparo_full": "", # Livre para disparar
+                "ultimo_disparo": "", "ultimo_disparo_full": "", 
                 "incluir_hospedagem": incluir_hospedagem, "cidade_hotel": cidade_hotel,
                 "historico": historico_precos
             }
