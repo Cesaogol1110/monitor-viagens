@@ -8,7 +8,7 @@ import urllib.parse
 import streamlit as st # Usado aqui apenas para ler o cofre (secrets.toml) da mesma forma que antes
 from twilio.rest import Client
 
-print("Iniciando o Motor Vigilante da Tucano Verde...")
+print("Iniciando o Motor Vigilante do Monitor de Viagens...")
 
 # ==========================================
 # CONFIGURAÇÕES E CHAVES DO COFRE
@@ -277,7 +277,7 @@ def processar_disparo(cod, info, hoje):
                     voos_vistos.add(id_voo)
         
         titulo_wpp = "Voo+Hotel" if info.get("incluir_hospedagem", True) else "Apenas Voos"
-        msg_diaria = f"⏰ *ATUALIZAÇÃO DIÁRIA TUCANO VERDE*\nCódigo: {cod}\n\nEncontramos {len(pacotes_unicos)} opções ({titulo_wpp}) hoje:\n\n"
+        msg_diaria = f"⏰ *ATUALIZAÇÃO DIÁRIA - MONITOR DE VIAGENS*\nCódigo: {cod}\n\nEncontramos {len(pacotes_unicos)} opções ({titulo_wpp}) hoje:\n\n"
         for i, pct in enumerate(pacotes_unicos[:2], 1):
             msg_diaria += f"🏆 *OPÇÃO {i}: {pct['custo_formatado']}*\n"
             if info.get("incluir_hospedagem", True):
@@ -287,7 +287,7 @@ def processar_disparo(cod, info, hoje):
             msg_diaria += f"🔗 {pct['voo']['link']}\n"
             msg_diaria += "-----------------------\n"
         
-        msg_diaria += f"🛑 *Para cancelar os avisos automáticos, acesse o painel da Tucano Verde.*"
+        msg_diaria += f"🛑 *Para cancelar os avisos automáticos, acesse o seu painel.*"
         
         sucesso, _ = testar_alerta_whatsapp(info["telefone"], msg_diaria)
         if sucesso:
@@ -321,7 +321,7 @@ def loop_vigilante():
         except Exception as e: 
             print(f"Erro no loop principal: {e}")
             
-        time.sleep(30) # Pausa por 30 segundos e confere o relógio de novo
+        time.sleep(30) 
 
 if __name__ == "__main__":
     loop_vigilante()
