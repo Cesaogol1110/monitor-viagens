@@ -1,4 +1,4 @@
-# código final 26/02/2026 - VERSÃO SEM TRAVA ANTI-SPAM NA CRIAÇÃO
+# código final 26/02/2026 - VERSÃO INTEGRAL COM FREQUÊNCIA DINÂMICA
 # dashboard_v2.py
 import streamlit as st
 import datetime
@@ -102,7 +102,7 @@ def enviar_alerta_whatsapp(numero, pacotes, codigo):
             msg += f"{i}️⃣ *R$ {p['total']:,.2f}*\n✈️ {p['voo']}\n🏨 {p['hotel']}\n🔗 Voo: {p['link_v']}\n"
             if p['link_h']: msg += f"🔗 Hotel: {p['link_h']}\n"
             msg += "\n"
-        msg += "O robô vigilante continuará monitorando diariamente no Render!"
+        msg += "O robô continuará monitorando na frequência escolhida!"
         dest = f"whatsapp:{numero}" if not numero.startswith("whatsapp:") else numero
         client.messages.create(from_=TWILIO_WHATSAPP_NUMBER, body=msg, to=dest)
         return True
@@ -157,56 +157,13 @@ if not st.session_state["autenticado"]:
 # MEGA DICIONÁRIO DE AEROPORTOS (GLOBAL)
 # ==========================================
 AEROPORTOS = {
-    # BRASIL
     "São Paulo (GRU) - Guarulhos": "GRU", "São Paulo (CGH) - Congonhas": "CGH", "São Paulo (VCP) - Viracopos": "VCP",
     "Rio de Janeiro (GIG) - Galeão": "GIG", "Rio de Janeiro (SDU) - Santos Dumont": "SDU",
-    "Brasília (BSB) - Juscelino Kubitschek": "BSB", "Belo Horizonte (CNF) - Confins": "CNF",
-    "Salvador (SSA)": "SSA", "Recife (REC)": "REC", "Fortaleza (FOR)": "FOR",
-    "Porto Alegre (POA)": "POA", "Curitiba (CWB)": "CWB", "Florianópolis (FLN)": "FLN",
-    "Belém (BEL)": "BEL", "Manaus (MAO)": "MAO", "Vitória (VIX)": "VIX",
-    "Goiânia (GYN)": "GYN", "Cuiabá (CGB)": "CGB", "Campo Grande (CGR)": "CGR",
-    "Natal (NAT)": "NAT", "Maceió (MCZ)": "MCZ", "João Pessoa (JPA)": "JPA",
-    "São Luís (SLZ)": "SLZ", "Aracaju (AJU)": "AJU", "Teresina (THE)": "THE",
-    "Porto Velho (PVH)": "PVH", "Macapá (MCP)": "MCP", "Boa Vista (BVB)": "BVB",
-    "Rio Branco (RBR)": "RBR", "Palmas (PMW)": "PMW", "Jericoacoara, CE (JJD)": "JJD",
-    "Porto Seguro, BA (BPS)": "BPS", "Foz do Iguaçu, PR (IGU)": "IGU", "Navegantes, SC (NVT)": "NVT", "Ilhéus, BA (IOS)": "IOS",
-
-    # AMÉRICA DO NORTE
-    "Miami, EUA (MIA)": "MIA", "Orlando, EUA (MCO)": "MCO", 
-    "Nova York, EUA (JFK)": "JFK", "Nova York, EUA (EWR)": "EWR", "Nova York, EUA (LGA)": "LGA",
-    "Los Angeles, EUA (LAX)": "LAX", "São Francisco, EUA (SFO)": "SFO", "Las Vegas, EUA (LAS)": "LAS",
-    "Chicago, EUA (ORD)": "ORD", "Dallas/Fort Worth, EUA (DFW)": "DFW", "Atlanta, EUA (ATL)": "ATL",
-    "Houston, EUA (IAH)": "IAH", "Boston, EUA (BOS)": "BOS", "Washington D.C., EUA (IAD)": "IAD",
-    "Toronto, Canadá (YYZ)": "YYZ", "Vancouver, Canadá (YVR)": "YVR", "Montreal, Canadá (YUL)": "YUL",
-    "Cidade do México, México (MEX)": "MEX", "Cancun, México (CUN)": "CUN",
-
-    # AMÉRICA DO SUL & CARIBE
-    "Buenos Aires, Arg (EZE)": "EZE", "Buenos Aires, Arg (AEP)": "AEP",
-    "Santiago, Chile (SCL)": "SCL", "Bogotá, Colômbia (BOG)": "BOG",
-    "Lima, Peru (LIM)": "LIM", "Montevidéu, Uruguai (MVD)": "MVD",
-    "Assunção, Paraguai (ASU)": "ASU", "Quito, Equador (UIO)": "UIO",
-    "Punta Cana, Rep. Dominicana (PUJ)": "PUJ", "Havana, Cuba (HAV)": "HAV",
-
-    # EUROPA
-    "Lisboa, Portugal (LIS)": "LIS", "Porto, Portugal (OPO)": "OPO",
-    "Madri, Espanha (MAD)": "MAD", "Barcelona, Espanha (BCN)": "BCN",
-    "Paris, França (CDG)": "CDG", "Paris, França (ORY)": "ORY",
-    "Londres, UK (LHR)": "LHR", "Londres, UK (LGW)": "LGW",
-    "Frankfurt, Alemanha (FRA)": "FRA", "Munique, Alemanha (MUC)": "MUC", "Berlim, Alemanha (BER)": "BER",
-    "Amsterdã, Holanda (AMS)": "AMS", "Roma, Itália (FCO)": "FCO", "Milão, Itália (MXP)": "MXP",
-    "Zurique, Suíça (ZRH)": "ZRH", "Genebra, Suíça (GVA)": "GVA",
-    "Istambul, Turquia (IST)": "IST", "Viena, Áustria (VIE)": "VIE", "Dublin, Irlanda (DUB)": "DUB",
-
-    # ÁFRICA & ORIENTE MÉDIO
-    "Joanesburgo, África do Sul (JNB)": "JNB", "Cape Town, África do Sul (CPT)": "CPT",
-    "Dubai, EAU (DXB)": "DXB", "Doha, Catar (DOH)": "DOH", "Abu Dhabi, EAU (AUH)": "AUH",
-    "Tel Aviv, Israel (TLV)": "TLV", "Cairo, Egito (CAI)": "CAI",
-
-    # ÁSIA & OCEANIA
-    "Tóquio, Japão (HND)": "HND", "Tóquio, Japão (NRT)": "NRT",
-    "Pequim, China (PEK)": "PEK", "Xangai, China (PVG)": "PVG", "Hong Kong (HKG)": "HKG",
-    "Seul, Coreia do Sul (ICN)": "ICN", "Cingapura (SIN)": "SIN", "Bangkok, Tailândia (BKK)": "BKK",
-    "Sydney, Austrália (SYD)": "SYD", "Melbourne, Austrália (MEL)": "MEL", "Auckland, Nova Zelândia (AKL)": "AKL"
+    "Brasília (BSB)": "BSB", "Belo Horizonte (CNF)": "CNF", "Salvador (SSA)": "SSA", "Recife (REC)": "REC", "Fortaleza (FOR)": "FOR",
+    "Miami, EUA (MIA)": "MIA", "Orlando, EUA (MCO)": "MCO", "Nova York, EUA (JFK)": "JFK",
+    "Cancun, México (CUN)": "CUN", "Lisboa, Portugal (LIS)": "LIS", "Paris, França (CDG)": "CDG",
+    "Londres, UK (LHR)": "LHR", "Madri, Espanha (MAD)": "MAD", "Buenos Aires, Arg (EZE)": "EZE",
+    "Santiago, Chile (SCL)": "SCL", "Cape Town, África do Sul (CPT)": "CPT", "Joanesburgo (JNB)": "JNB"
 }
 
 st.sidebar.title("🤖 Painel do Robô")
@@ -217,7 +174,6 @@ bd_atual = carregar_bd()
 # --- CARTÕES INTERATIVOS ---
 with st.sidebar.expander("📂 Meus Orçamentos Salvos", expanded=True):
     encontrou_algum = False
-    
     for c, info in list(bd_atual.items()):
         if info.get("telefone") == st.session_state["usuario_logado"]:
             encontrou_algum = True
@@ -226,14 +182,11 @@ with st.sidebar.expander("📂 Meus Orçamentos Salvos", expanded=True):
             
             with st.container(border=True):
                 st.markdown(f"**Cód: {c}** | {status_str}")
-                st.caption(f"👤 **Req:** {info.get('telefone')}")
                 st.caption(f"🛫 **Rota:** {info.get('origem', 'N/A')} ➡️ {info.get('destino', 'N/A')}")
-                if info.get('data_volta'):
-                    st.caption(f"📅 **Datas:** {info.get('data_ida')} até {info.get('data_volta')}")
-                else:
-                    st.caption(f"📅 **Data:** {info.get('data_ida')} (Somente Ida)")
+                st.caption(f"📅 **Data:** {info.get('data_ida')}")
                 st.caption(f"💰 **Teto:** R$ {info.get('orcamento_max', 0):,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
-                st.caption(f"⏰ **Motor diário:** às {info.get('horario', 'N/A')}") 
+                # NOVIDADE: Mostrando a Frequência e o Horário Base
+                st.caption(f"⏰ **Freq:** {info.get('frequencia', 'Diariamente')} (Base: {info.get('horario', 'N/A')})") 
                 
                 col_b1, col_b2 = st.columns(2)
                 with col_b1:
@@ -282,6 +235,7 @@ with aba_nova_busca:
         else:
             cidade_hotel = ""
 
+        # --- NOVIDADE: OPÇÕES DE FREQUÊNCIA NO PAINEL ---
         col_p1, col_p2 = st.columns(2)
         with col_p1:
             st.subheader("👥 Passageiros")
@@ -296,8 +250,14 @@ with aba_nova_busca:
                     with cols_id[j]: idades.append(st.number_input(f"Idade C{j+1}", 0, 17, 6, key=f"id_{j}"))
         with col_p2:
             st.subheader("📱 Alerta Automático")
-            tel_alerta = st.text_input("WhatsApp", value=st.session_state["usuario_logado"], disabled=True)
-            hora_a = st.time_input("Horário Diário", datetime.time(9, 45))
+            cz1, cz2, cz3 = st.columns(3)
+            with cz1: 
+                tel_alerta = st.text_input("WhatsApp", value=st.session_state["usuario_logado"], disabled=True)
+            with cz2:
+                opcoes_frequencia = ["Diariamente", "A cada hora", "2 vezes por dia", "4 vezes por dia", "Semanalmente", "Mensalmente"]
+                freq_alerta = st.selectbox("Frequência", opcoes_frequencia)
+            with cz3:
+                hora_a = st.time_input("Horário Base", datetime.time(9, 45))
 
     if st.button("Buscar Pacotes & Salvar Automação", type="primary", use_container_width=True):
         with st.spinner("🚀 Consultando Google Flights & Hotels..."):
@@ -315,15 +275,15 @@ with aba_nova_busca:
             
             bd_atual[cod] = {
                 "monitorar": True, "telefone": tel_alerta, "horario": hora_a.strftime("%H:%M"),
+                "frequencia": freq_alerta, "data_criacao": hoje_str, # Campos novos
                 "origem": AEROPORTOS[origem_n], "destino": AEROPORTOS[destino_n], "orcamento_max": orc_max,
                 "data_ida": ida_s, "data_volta": vlt_s, "adultos": adt, "criancas": cri, 
-                "ultimo_disparo": "",  # <--- REMOVI A TRAVA AQUI
+                "ultimo_disparo": "", "ultimo_disparo_full": "", # Livre para disparar
                 "incluir_hospedagem": incluir_hospedagem, "cidade_hotel": cidade_hotel,
                 "historico": historico_precos
             }
             salvar_bd(bd_atual)
             
-            # Avisos na tela (Opcional, mas útil para ver o que achou na hora)
             if resultados:
                 st.success(f"✅ ORÇAMENTO {cod} ATIVADO! A busca instantânea já foi enviada.")
                 enviar_alerta_whatsapp(tel_alerta, resultados, cod)
@@ -335,28 +295,19 @@ with aba_nova_busca:
 
 with aba_historico:
     st.subheader("📉 Análise de Tendência de Preços")
-    st.write("Acompanhe a evolução do menor preço encontrado para saber o momento exato de comprar.")
-    
     codigos_usuario = {c: info for c, info in bd_atual.items() if info.get("telefone") == st.session_state["usuario_logado"]}
-    
     if not codigos_usuario:
         st.info("Você ainda não tem orçamentos salvos para gerar relatórios.")
     else:
         cod_selecionado = st.selectbox("Selecione o Código do Orçamento:", list(codigos_usuario.keys()))
         dados_orcamento = codigos_usuario[cod_selecionado]
-        
         st.write(f"**Destino:** {dados_orcamento.get('destino')} | **Data Ida:** {dados_orcamento.get('data_ida')}")
         
         historico_dados = dados_orcamento.get("historico", {})
-        
         if not historico_dados:
-            st.warning("O robô ainda não coletou dados de preço suficientes para este código. Tente amanhã!")
+            st.warning("O robô ainda não coletou dados de preço suficientes para este código.")
         else:
             df_historico = pd.DataFrame(list(historico_dados.items()), columns=['Data da Busca', 'Menor Preço (R$)'])
             df_historico['Data da Busca'] = pd.to_datetime(df_historico['Data da Busca'])
             df_historico['Dia da Semana'] = df_historico['Data da Busca'].dt.day_name()
-            
             st.line_chart(df_historico.set_index('Data da Busca')['Menor Preço (R$)'])
-            
-            with st.expander("Ver Tabela Detalhada"):
-                st.dataframe(df_historico, use_container_width=True)
