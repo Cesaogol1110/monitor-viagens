@@ -1,4 +1,4 @@
-# código final 26/02/2026 - TÁTICA SNIPER DE LOJAS
+# código final 26/02/2026 - ROTA HÍBRIDA (SHOPPING + LOJA)
 # dashboard_v2.py
 import streamlit as st
 import datetime
@@ -64,7 +64,7 @@ def parse_price(val):
     except: return 999999.0
 
 def obter_link_seguro(link_bruto, titulo, loja):
-    """Garante links curtos. Se o Google enviar 'lixo', faz um sniper direto no site da loja."""
+    """Garante links curtos. Se o Google enviar 'lixo', busca no Shopping cruzando Loja + Produto."""
     # 1. Se o link for direto da loja e for curto, usamos intacto.
     if link_bruto and "google.com" not in link_bruto and link_bruto.startswith("http") and len(link_bruto) < 300:
         return link_bruto
@@ -79,14 +79,9 @@ def obter_link_seguro(link_bruto, titulo, loja):
                         return str(qs[param][0])
     except: pass
 
-    # 3. TÁTICA SNIPER: Força o buscador normal do Google a olhar APENAS para a loja
-    # Ex: site:lebiscuit.com.br "Smart TV 4K Hisense..."
-    loja_formatada = loja.lower().replace(" ", "").replace(".com.br", "").replace(".com", "")
-    dominio = f"{loja_formatada}.com.br"
-    
-    termo_curto = titulo[:45] 
-    query_sniper = f"site:{dominio} {termo_curto}"
-    return f"https://www.google.com.br/search?q={urllib.parse.quote(query_sniper)}"
+    # 3. ROTA HÍBRIDA: Força o Google a pesquisar na aba SHOPPING combinando a Loja e o Título
+    termo_curto = f"{loja} {titulo}"[:60] 
+    return f"https://www.google.com.br/search?tbm=shop&q={urllib.parse.quote(termo_curto)}"
 
 # ==========================================
 # MOTORES DE BUSCA: VIAGENS
