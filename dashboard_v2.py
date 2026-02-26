@@ -1,4 +1,4 @@
-# código final 20/01/2026
+# código final 26/02/2026 - ESTRATÉGIA DE BUSCA AVANÇADA DIRETO NA LOJA
 # dashboard_v2.py
 import streamlit as st
 import datetime
@@ -63,21 +63,53 @@ def parse_price(val):
     try: return float(num_str)
     except: return 999999.0
 
-def ottenere_link_sicuro(link_bruto, titulo, loja):
-    try:
-        if link_bruto:
-            qs = urllib.parse.parse_qs(urllib.parse.urlparse(link_bruto).query)
-            for param in ['adurl', 'url', 'q']:
-                if param in qs and str(qs[param][0]).startswith('http') and "google.com" not in qs[param][0]:
-                    if len(qs[param][0]) < 400: 
-                        return str(qs[param][0])
-    except: pass
-    
+def obter_link_seguro(link_bruto, titulo, loja):
+    """Estratégia de Busca Avançada sugerida pelo usuário: Ignora o Google e busca dentro da loja."""
+    # 1. Se tiver URL limpa original da loja
     if link_bruto and "google.com" not in link_bruto and link_bruto.startswith("http") and len(link_bruto) < 300:
         return link_bruto
 
-    termo = f"{loja} {titulo}"[:80] 
-    return f"https://www.google.com.br/search?q={urllib.parse.quote(termo)}"
+    try:
+        qs = urllib.parse.parse_qs(urllib.parse.urlparse(link_bruto).query)
+        for param in ['adurl', 'url']:
+            if param in qs and str(qs[param][0]).startswith('http') and "google.com" not in qs[param][0]:
+                url_ext = str(qs[param][0])
+                if len(url_ext) < 300: return url_ext
+    except: pass
+
+    # 2. MOTOR DE BUSCA AVANÇADA INTERNA NAS LOJAS
+    loja_key = str(loja).lower().strip()
+    
+    # Extrai as 4 palavras-chave principais do produto para a busca
+    palavras = [p for p in titulo.split() if len(p) > 1][:4]
+    termo_url = urllib.parse.quote(" ".join(palavras))
+    termo_ml = "-".join(palavras).replace("%", "")
+
+    STORE_SEARCH_URLS = {
+        "mercado livre": f"https://lista.mercadolivre.com.br/{termo_ml}",
+        "amazon": f"https://www.amazon.com.br/s?k={termo_url}",
+        "magalu": f"https://www.magazineluiza.com.br/busca/{termo_url}/",
+        "magazine luiza": f"https://www.magazineluiza.com.br/busca/{termo_url}/",
+        "casas bahia": f"https://www.casasbahia.com.br/c/?filtro={termo_url}",
+        "le biscuit": f"https://www.lebiscuit.com.br/busca?q={termo_url}",
+        "fast shop": f"https://www.fastshop.com.br/web/s/{termo_url}",
+        "ponto": f"https://www.pontofrio.com.br/busca/{termo_url}",
+        "pontofrio": f"https://www.pontofrio.com.br/busca/{termo_url}",
+        "extra": f"https://www.extra.com.br/busca/{termo_url}",
+        "shopee": f"https://shopee.com.br/search?keyword={termo_url}",
+        "kabum": f"https://www.kabum.com.br/busca/{termo_url}",
+        "carrefour": f"https://www.carrefour.com.br/busca/{termo_url}",
+        "americanas": f"https://www.americanas.com.br/busca/{termo_url}"
+    }
+
+    # Se a loja do Google bater com nosso dicionário VIP, redireciona direto para o buscador deles
+    for key, url_loja in STORE_SEARCH_URLS.items():
+        if key in loja_key:
+            return url_loja
+
+    # 3. Fallback Seguro no Google Shopping com restrição de aspas (Nome Exato)
+    termo_exato = f'"{titulo[:40]}"'
+    return f"https://www.google.com.br/search?tbm=shop&q={urllib.parse.quote(termo_exato)}"
 
 # ==========================================
 # MOTORES DE BUSCA: VIAGENS
@@ -175,9 +207,9 @@ def buscar_produtos_google(metodo, produto_base, marca, termos_excluir, link_pro
                 if preco <= orcamento:
                     titulo = item.get("title", "")
                     link_bruto = item.get("link", "")
-                    loja = item.get("source", "Loja")
+                    loja = item.get("source", "Loja não informada")
                     
-                    link_final = ottenere_link_sicuro(link_bruto, titulo, loja)
+                    link_final = obter_link_seguro(link_bruto, titulo, loja)
                         
                     encontrados.append({
                         "nome": titulo,
@@ -196,9 +228,9 @@ def buscar_produtos_google(metodo, produto_base, marca, termos_excluir, link_pro
                 
                 if preco <= orcamento:
                     link_bruto = seller.get("link", "")
-                    loja = seller.get("name", "Loja")
+                    loja = seller.get("name", "Loja não informada")
                     
-                    link_final = ottenere_link_sicuro(link_bruto, nome_produto, loja)
+                    link_final = obter_link_seguro(link_bruto, nome_produto, loja)
                         
                     encontrados.append({
                         "nome": nome_produto,
@@ -229,7 +261,7 @@ def enviar_alerta_whatsapp_painel(numero, itens, codigo, tipo_monitoramento="via
         else:
             msg = f"📦 *{len(itens)} OFERTAS DE PRODUTO!* (Cód: {codigo})\n\n"
             for i, p in enumerate(itens, 1):
-                msg += f"{i}️⃣ *R$ {p['total']:,.2f}* na loja {p['loja']}\n🛒 {p['nome'][:45]}...\n🔗 Link: {p['link']}\n\n"
+                msg += f"{i}️⃣ *R$ {p['total']:,.2f}* na loja {p['loja']}\n🛒 {p['nome'][:45]}...\n🔗 Acesse Aqui: {p['link']}\n\n"
                 
         msg += "O sistema continuará monitorando na frequência escolhida!"
         
@@ -299,7 +331,7 @@ if not st.session_state["autenticado"]:
                             usuarios_bd[user_to_reset]["senha"] = "123456"
                             usuarios_bd[user_to_reset]["precisa_trocar_senha"] = True 
                             salvar_usuarios(usuarios_bd)
-                            st.success(f"✅ Senha del utilizador {user_to_reset} resetada.")
+                            st.success(f"✅ Senha do utilizador {user_to_reset} resetada.")
                     with col_adm2:
                         if st.button("🗑️ Excluir Usuário", use_container_width=True):
                             del usuarios_bd[user_to_reset]
@@ -313,7 +345,7 @@ if not st.session_state["autenticado"]:
                             st.success(f"✅ Usuário {user_to_reset} e orçamentos excluídos!")
                             time.sleep(1.5)
                             st.rerun()
-                else: st.info("Nessun utilizador registrato.")
+                else: st.info("Nenhum utilizador registado.")
     st.stop()
 
 # ==========================================
@@ -432,7 +464,7 @@ with aba_nova_busca:
             prod_excluir = st.text_input("Palavras a Excluir (separadas por vírgula)", placeholder="Ex: capa, película, acessório, usado")
             link_produto = ""
         else:
-            st.info("💡 Encontre il prodotto su Google Shopping, copia il link e incollalo qui sotto per tracciare il prezzo esatto dell'articolo.")
+            st.info("💡 Encontre o produto no Google Shopping, copie o link e cole abaixo para rastrear a tabela de preços do item exato.")
             link_produto = st.text_input("Cole o Link do Google Shopping aqui:")
             prod_base = "Produto por Link"
             prod_marca = ""
@@ -498,7 +530,6 @@ with aba_nova_busca:
                     st.error(f"⚠️ Salvo, mas o Twilio bloqueou: {erro_wa}")
                 
                 st.subheader("🔎 Opções Encontradas Agora:")
-                # SOSTITUZIONE CRITICA: HTML PURO INVECE DI MARKDOWN
                 for r in resultados:
                     with st.container(border=True):
                         if tipo_monitoramento == "✈️ Viagens (Voo + Hotel)":
@@ -511,9 +542,9 @@ with aba_nova_busca:
                         else:
                             st.write(f"💰 **R$ {r['total']:,.2f}** | 🏬 Loja: {r['loja']}")
                             st.write(f"📦 {r['nome']}")
-                            st.markdown(f'<a href="{r["link"]}" target="_blank" style="font-weight:bold;">🔗 Acessar Oferta Direta</a>', unsafe_allow_html=True)
+                            st.markdown(f'<a href="{r["link"]}" target="_blank" style="font-weight:bold;">🔗 Acessar Oferta (Busca Avançada na Loja)</a>', unsafe_allow_html=True)
             else: 
-                st.warning(f"🔔 ORÇAMENTO SALVO! O robô ficará vigiando, mas non ha inviato un avviso ora perché non ha trovato alcuna opzione entro il limite di R$ {orc_max}.")
+                st.warning(f"🔔 ORÇAMENTO SALVO! O robô ficará vigiando, mas não enviou alerta agora porque não encontrou nenhuma opção no teto de R$ {orc_max}.")
 
 with aba_historico:
     st.subheader("📉 Análise de Tendência de Preços")
