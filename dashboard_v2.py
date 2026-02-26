@@ -1,4 +1,4 @@
-# código final 26/02/2026 - VERSÃO INTEGRAL COM CARTÕES DE ORÇAMENTO E HISTÓRICO
+# código final 20/01/2026
 # dashboard_v2.py
 import streamlit as st
 import datetime
@@ -168,15 +168,16 @@ st.sidebar.write(f"👤 Usuário: **{st.session_state['usuario_logado']}**")
 
 bd_atual = carregar_bd()
 
-# --- NOVIDADE: CARTÕES DE ORÇAMENTO COM PREMISSAS NA BARRA LATERAL ---
-with st.sidebar.expander("📂 Consultar Orçamentos Salvos", expanded=True):
+# --- CARTÕES INTERATIVOS (BOTOES DE ATIVAR/PAUSAR E EXCLUIR) ---
+with st.sidebar.expander("📂 Meus Orçamentos Salvos", expanded=True):
     encontrou_algum = False
-    for c, info in bd_atual.items():
+    
+    for c, info in list(bd_atual.items()):
         if info.get("telefone") == st.session_state["usuario_logado"]:
             encontrou_algum = True
-            status_str = "✅ Ativo" if info.get("monitorar") else "⏸️ Pausado"
+            is_ativo = info.get("monitorar", False)
+            status_str = "✅ Ativo" if is_ativo else "⏸️ Pausado"
             
-            # Formatação limpa dentro de um cartão
             with st.container(border=True):
                 st.markdown(f"**Cód: {c}** | {status_str}")
                 st.caption(f"👤 **Req:** {info.get('telefone')}")
@@ -186,18 +187,24 @@ with st.sidebar.expander("📂 Consultar Orçamentos Salvos", expanded=True):
                 else:
                     st.caption(f"📅 **Data:** {info.get('data_ida')} (Somente Ida)")
                 st.caption(f"💰 **Teto:** R$ {info.get('orcamento_max', 0):,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+                
+                # Botoes lado a lado
+                col_b1, col_b2 = st.columns(2)
+                with col_b1:
+                    lbl_btn = "⏸️ Pausar" if is_ativo else "▶️ Ativar"
+                    if st.button(lbl_btn, key=f"tog_{c}", use_container_width=True):
+                        bd_atual[c]["monitorar"] = not is_ativo
+                        salvar_bd(bd_atual)
+                        st.rerun() # Atualiza a tela na hora
+                
+                with col_b2:
+                    if st.button("🗑️ Excluir", key=f"del_{c}", use_container_width=True):
+                        del bd_atual[c]
+                        salvar_bd(bd_atual)
+                        st.rerun() # Remove o cartão da tela na hora
     
     if not encontrou_algum:
         st.info("Nenhum orçamento salvo.")
-
-with st.sidebar.expander("📲 Ativar/Pausar Monitoramento"):
-    cod_m = st.text_input("Código do Orçamento")
-    acao_m = st.selectbox("Ação", ["ATIVAR Monitoramento", "CANCELAR Monitoramento"])
-    if st.button("Aplicar Ação"):
-        if cod_m in bd_atual:
-            bd_atual[cod_m]["monitorar"] = (acao_m == "ATIVAR Monitoramento")
-            salvar_bd(bd_atual)
-            st.sidebar.success("Atualizado com sucesso!")
 
 st.title("✈️ Monitor de Viagens Avançado")
 
@@ -271,15 +278,7 @@ with aba_nova_busca:
                 "historico": historico_precos
             }
             salvar_bd(bd_atual)
-            
-            if resultados:
-                st.success(f"✅ ORÇAMENTO {cod} ATIVADO! Enviamos {len(resultados)} opções ao WhatsApp.")
-                enviar_alerta_whatsapp(tel_alerta, resultados, cod)
-                for r in resultados:
-                    with st.container(border=True):
-                        st.subheader(f"💰 R$ {r['total']:,.2f}")
-                        st.write(f"✈️ {r['voo']} | 🏨 {r['hotel']}")
-            else: st.warning("Salvo! No momento não há voos no preço, mas o robô vigiará.")
+            st.rerun() # Atualiza a barra lateral imediatamente com o novo cartão
 
 with aba_historico:
     st.subheader("📉 Análise de Tendência de Preços")
