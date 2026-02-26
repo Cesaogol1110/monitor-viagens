@@ -207,7 +207,7 @@ with st.sidebar.expander("📂 Meus Orçamentos Salvos", expanded=True):
     if not encontrou_algum:
         st.info("Nenhum orçamento salvo.")
 
-st.title("✈️ Monitor de Viagens Avançado")
+st.title("✈️ Monitor de Viagens")
 
 aba_nova_busca, aba_historico = st.tabs(["🔎 Nova Busca & Configuração", "📈 Relatório de Tendências (Histórico)"])
 
@@ -307,3 +307,4 @@ with aba_historico:
             
             with st.expander("Ver Tabela Detalhada"):
                 st.dataframe(df_historico, use_container_width=True)
+
