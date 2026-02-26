@@ -1,4 +1,4 @@
-# código final 26/02/2026 - DESEMBRULHADOR DE LINKS DIRETOS
+# código final 26/02/2026 - BLINDAGEM DE CARACTERES ESPECIAIS E ASPAS
 # dashboard_v2.py
 import streamlit as st
 import datetime
@@ -63,45 +63,33 @@ def parse_price(val):
     try: return float(num_str)
     except: return 999999.0
 
-def desembrulhar_link(url_bruta):
-    """Extrai o link EXATO do produto rasgando o redirecionamento do Google."""
-    if not url_bruta: return ""
+def obter_link_seguro(link_bruto, titulo, loja):
+    """Extrai link puro e blinda contra aspas/espaços que quebram o HTML do Streamlit."""
     
-    # 1. Se já é um link limpo da loja (Mercado Livre, Amazon, etc)
-    if "google.com" not in url_bruta and url_bruta.startswith("http"):
-        return url_bruta
-
-    # 2. Tenta extrair da Query String (Onde o Google esconde a URL real)
+    # 1. Tenta extrair a URL pura escondida nos parâmetros do Google
     try:
-        qs = urllib.parse.parse_qs(urllib.parse.urlparse(url_bruta).query)
-        for p in ['adurl', 'url', 'q']:
-            if p in qs and str(qs[p][0]).startswith('http') and "google.com" not in qs[p][0]:
-                return str(qs[p][0])
+        if link_bruto:
+            qs = urllib.parse.parse_qs(urllib.parse.urlparse(link_bruto).query)
+            for param in ['adurl', 'url', 'q']:
+                if param in qs and str(qs[param][0]).startswith('http') and "google.com" not in qs[param][0]:
+                    url_ext = str(qs[param][0])
+                    if len(url_ext) < 400: 
+                        # Codifica a URL para não quebrar botões
+                        return urllib.parse.quote(url_ext, safe=":/&?=#-_.")
     except: pass
+    
+    # 2. Se o link original já era direto da loja
+    if link_bruto and "google.com" not in link_bruto and link_bruto.startswith("http") and len(link_bruto) < 300:
+        return urllib.parse.quote(link_bruto, safe=":/&?=#-_.")
 
-    # 3. Faz uma requisição "fantasma" invisível para forçar o Google a cuspir a URL final
-    try:
-        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
-        res = requests.get(url_bruta, headers=headers, allow_redirects=False, timeout=3)
-        loc = res.headers.get('Location', '')
-        if loc:
-            if "google.com" not in loc and loc.startswith("http"): return loc
-            # Se for um redirecionamento relativo do próprio Google
-            if loc.startswith("/url?"):
-                qs_loc = urllib.parse.parse_qs(urllib.parse.urlparse(loc).query)
-                if 'q' in qs_loc: return str(qs_loc['q'][0])
-                if 'url' in qs_loc: return str(qs_loc['url'][0])
-    except: pass
-
-    # 4. Plano de Fuga Anti-Twilio Crash: Encurtador Is.gd
-    try:
-        res_short = requests.get(f"https://is.gd/create.php?format=simple&url={urllib.parse.quote(url_bruta)}", timeout=2)
-        if res_short.status_code == 200:
-            return res_short.text.strip()
-    except: pass
-
-    # Último recurso cortado para não estourar 1600 caracteres do WhatsApp
-    return url_bruta[:250] + "..."
+    # 3. PLANO DE FUGA: Pesquisa ORGÂNICA limpa no Google
+    # Removemos as aspas (ex: 55") para evitar que cortem o código do link no meio
+    titulo_limpo = str(titulo).replace('"', '').replace("'", "")
+    loja_limpa = str(loja).replace('"', '').replace("'", "")
+    
+    termo = f"{loja_limpa} {titulo_limpo}"[:80] 
+    # quote_plus converte espaços em sinais de mais (+), formato perfeito para pesquisas Google
+    return f"https://www.google.com.br/search?q={urllib.parse.quote_plus(termo)}"
 
 # ==========================================
 # MOTORES DE BUSCA: VIAGENS
@@ -201,7 +189,7 @@ def buscar_produtos_google(metodo, produto_base, marca, termos_excluir, link_pro
                     link_bruto = item.get("link", "")
                     loja = item.get("source", "Loja não informada")
                     
-                    link_final = desembrulhar_link(link_bruto)
+                    link_final = obter_link_seguro(link_bruto, titulo, loja)
                         
                     encontrados.append({
                         "nome": titulo,
@@ -222,7 +210,7 @@ def buscar_produtos_google(metodo, produto_base, marca, termos_excluir, link_pro
                     link_bruto = seller.get("link", "")
                     loja = seller.get("name", "Loja não informada")
                     
-                    link_final = desembrulhar_link(link_bruto)
+                    link_final = obter_link_seguro(link_bruto, nome_produto, loja)
                         
                     encontrados.append({
                         "nome": nome_produto,
@@ -480,7 +468,7 @@ with aba_nova_busca:
         hora_a = st.time_input("Horário Base do Alerta", datetime.time(9, 45))
 
     if st.button("Buscar e Salvar Automação", type="primary", use_container_width=True):
-        with st.spinner("🚀 Desembrulhando links do Google..."):
+        with st.spinner("🚀 Consultando inteligência do Google..."):
             cod = str(uuid.uuid4())[:6].upper()
             hoje_str = datetime.datetime.now().strftime("%Y-%m-%d")
             historico_precos = {}
@@ -531,13 +519,14 @@ with aba_nova_busca:
                             st.write(f"💰 **R$ {r['total']:,.2f}**")
                             st.write(f"✈️ Voo: {r['voo']} | 🏨 Hotel: {r['hotel']}")
                             if r.get('link_h'):
-                                st.markdown(f'<a href="{r["link_v"]}" target="_blank" style="font-weight:bold;">🔗 Ver Voo</a> | <a href="{r["link_h"]}" target="_blank" style="font-weight:bold;">🔗 Ver Hotel</a>', unsafe_allow_html=True)
+                                st.markdown(f"**[🔗 Ver Voo]({r['link_v']})** | **[🔗 Ver Hotel]({r['link_h']})**")
                             else:
-                                st.markdown(f'<a href="{r["link_v"]}" target="_blank" style="font-weight:bold;">🔗 Ver Voo</a>', unsafe_allow_html=True)
+                                st.markdown(f"**[🔗 Ver Voo]({r['link_v']})**")
                         else:
                             st.write(f"💰 **R$ {r['total']:,.2f}** | 🏬 Loja: {r['loja']}")
                             st.write(f"📦 {r['nome']}")
-                            st.markdown(f'<a href="{r["link"]}" target="_blank" style="font-weight:bold;">🔗 Acessar Link Direto da Oferta</a>', unsafe_allow_html=True)
+                            # O link agora vem 100% blindado sem aspas soltas para não quebrar o markdown
+                            st.markdown(f"**[🔗 Acessar Oferta Direta]({r['link']})**")
             else: 
                 st.warning(f"🔔 ORÇAMENTO SALVO! O robô ficará vigiando, mas não enviou alerta agora porque não encontrou nenhuma opção no teto de R$ {orc_max}.")
 
