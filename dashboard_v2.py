@@ -1,4 +1,4 @@
-# código final 26/02/2026 - ROTA ORGÂNICA DIRETA E FIM DOS INTERMEDIÁRIOS
+# código final 26/02/2026
 # dashboard_v2.py
 import streamlit as st
 import datetime
@@ -63,26 +63,31 @@ def parse_price(val):
     try: return float(num_str)
     except: return 999999.0
 
-def obter_link_seguro(link_bruto, titulo, loja):
-    """Extrai link limpo ou faz busca orgânica simples (Fim da Aba Shopping)."""
-    # 1. Tenta rasgar o rastreio do Google e pegar a URL verdadeira da loja
-    try:
-        if link_bruto:
-            qs = urllib.parse.parse_qs(urllib.parse.urlparse(link_bruto).query)
-            for param in ['adurl', 'url', 'q']:
-                if param in qs and str(qs[param][0]).startswith('http') and "google.com" not in qs[param][0]:
-                    if len(qs[param][0]) < 400: 
-                        return str(qs[param][0])
-    except: pass
+def obter_link_seguro(item):
+    """Extrai a URL decodificada da loja do rastreamento do Google, ou usa o product_link nativo."""
+    link_bruto = item.get("link", "")
     
-    # 2. Se o link original já era direto da loja
-    if link_bruto and "google.com" not in link_bruto and link_bruto.startswith("http") and len(link_bruto) < 300:
-        return link_bruto
+    # 1. Tenta decodificar a URL real se o Google a enviou encapsulada
+    try:
+        if link_bruto and ("url?url=" in link_bruto or "url?q=" in link_bruto):
+            parsed = urllib.parse.urlparse(link_bruto)
+            qs = urllib.parse.parse_qs(parsed.query)
+            for param in ['url', 'q', 'adurl']:
+                if param in qs and str(qs[param][0]).startswith('http'):
+                    url_extraida = str(qs[param][0])
+                    # Verifica se o limite de caracteres é seguro para o WhatsApp
+                    if len(url_extraida) < 600:
+                        return url_extraida
+    except: pass
 
-    # 3. PLANO DE FUGA DEFINITIVO: Pesquisa ORGÂNICA limpa no Google (sem tbm=shop e sem site:)
-    # Ao pesquisar "Loja Produto", o Google coloca a loja original no primeiro resultado
-    termo = f"{loja} {titulo}"[:80] 
-    return f"https://www.google.com.br/search?q={urllib.parse.quote(termo)}"
+    # 2. Se o link for um modal de celular que quebra no desktop, pega a vitrine nativa da SerpApi
+    if "ibp=oshop" in link_bruto:
+        link_produto = item.get("product_link", "")
+        if link_produto and link_produto.startswith("http"):
+            return link_produto
+
+    # 3. Retorna o link que a API enviou
+    return link_bruto
 
 # ==========================================
 # MOTORES DE BUSCA: VIAGENS
@@ -145,7 +150,7 @@ def buscar_pacotes_completos(origem, destino, ida, volta, adt, cri, idades, orc_
 # ==========================================
 def buscar_produtos_google(metodo, produto_base, marca, termos_excluir, link_produto, orcamento):
     try:
-        params = {"hl": "pt-br", "gl": "br", "google_domain": "google.com.br", "currency": "BRL", "device": "desktop", "api_key": SERPAPI_KEY}
+        params = {"hl": "pt-br", "gl": "br", "google_domain": "google.com.br", "currency": "BRL", "api_key": SERPAPI_KEY}
         
         if "Filtros" in metodo: 
             query = f"{produto_base}"
@@ -179,15 +184,12 @@ def buscar_produtos_google(metodo, produto_base, marca, termos_excluir, link_pro
                 
                 if preco <= orcamento:
                     titulo = item.get("title", "")
-                    link_bruto = item.get("link", "")
-                    loja = item.get("source", "Loja")
-                    
-                    link_final = obter_link_seguro(link_bruto, titulo, loja)
+                    link_final = obter_link_seguro(item)
                         
                     encontrados.append({
                         "nome": titulo,
                         "total": preco, 
-                        "loja": loja,
+                        "loja": item.get("source", "Loja não informada"),
                         "link": link_final
                     })
                     if len(encontrados) >= 5: break
@@ -200,15 +202,12 @@ def buscar_produtos_google(metodo, produto_base, marca, termos_excluir, link_pro
                 preco = parse_price(preco_bruto)
                 
                 if preco <= orcamento:
-                    link_bruto = seller.get("link", "")
-                    loja = seller.get("name", "Loja")
-                    
-                    link_final = obter_link_seguro(link_bruto, nome_produto, loja)
+                    link_final = obter_link_seguro(seller)
                         
                     encontrados.append({
                         "nome": nome_produto,
                         "total": preco,
-                        "loja": loja,
+                        "loja": seller.get("name", "Loja não informada"),
                         "link": link_final
                     })
                     if len(encontrados) >= 5: break
@@ -515,7 +514,7 @@ with aba_nova_busca:
                         else:
                             st.write(f"💰 **R$ {r['total']:,.2f}** | 🏬 Loja: {r['loja']}")
                             st.write(f"📦 {r['nome']}")
-                            st.markdown(f"[🔗 Acessar Oferta (Google Orgânico)]({r['link']})")
+                            st.markdown(f"[🔗 Acessar Oferta Direta]({r['link']})")
             else: 
                 st.warning(f"🔔 ORÇAMENTO SALVO! O robô ficará vigiando, mas não enviou alerta agora porque não encontrou nenhuma opção no teto de R$ {orc_max}.")
 
