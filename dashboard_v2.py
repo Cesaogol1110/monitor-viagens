@@ -1,4 +1,4 @@
-# código final 26/02/2026 - EXTRATOR DE LINKS PUROS DAS LOJAS
+# código final 26/02/2026 - BLINDAGEM DE LINKS E LIMITE DO TWILIO
 # dashboard_v2.py
 import streamlit as st
 import datetime
@@ -47,7 +47,7 @@ def salvar_bd(dados):
     requests.put(f"{FIREBASE_URL}/monitoramentos.json", json=dados)
 
 # ==========================================
-# FUNÇÕES DE LIMPEZA (PREÇOS E LINKS)
+# FUNÇÕES DE LIMPEZA (PREÇOS E LINKS SEGUROS)
 # ==========================================
 def parse_price(val):
     if val is None: return 999999.0
@@ -63,25 +63,32 @@ def parse_price(val):
     try: return float(num_str)
     except: return 999999.0
 
-def limpar_link_oferta(link_loja, link_shopping):
-    """Rasga o rastreio do Google e extrai o link puro da loja"""
-    if not link_loja: return link_shopping or ""
+def obter_link_seguro(item, titulo_fallback):
+    """Garante links curtos e funcionais para PC/Mobile e não trava o Twilio."""
+    # 1. Tenta o ID oficial (Link mais limpo possível)
+    pid = item.get("product_id")
+    if pid:
+        return f"https://www.google.com.br/shopping/product/{pid}"
     
-    # 1. Tenta extrair a URL pura escondida nos parâmetros do Google
-    try:
-        parsed = urllib.parse.urlparse(link_loja)
-        qs = urllib.parse.parse_qs(parsed.query)
-        for param in ['adurl', 'url', 'q']:
-            if param in qs and str(qs[param][0]).startswith('http'):
-                return str(qs[param][0])
-    except: pass
-    
-    # 2. Se for um link mobile-only (ibp=oshop) que quebra no PC, usa a vitrine oficial como plano B
-    if "ibp=oshop" in link_loja and link_shopping.startswith("http"):
-        return link_shopping
+    link_bruto = item.get("link", "")
+    if link_bruto:
+        # 2. Tenta extrair a URL direta da loja sem o rastreio
+        try:
+            qs = urllib.parse.parse_qs(urllib.parse.urlparse(link_bruto).query)
+            for param in ['adurl', 'url']:
+                if param in qs and str(qs[param][0]).startswith('http'):
+                    link_extraido = str(qs[param][0])
+                    if len(link_extraido) < 400:  # Evita links gigantes de lojas
+                        return link_extraido
+        except: pass
         
-    # 3. Se for um link normal, devolve intacto
-    return link_loja
+        # 3. Se for um link de loja normal (não Google)
+        if "google.com" not in link_bruto and link_bruto.startswith("http") and len(link_bruto) < 400:
+            return link_bruto
+
+    # 4. Fallback: Se for link quebrado (ibp=oshop) ou gigante, recria pesquisa limpa curta
+    titulo_curto = titulo_fallback[:40] 
+    return f"https://www.google.com.br/search?tbm=shop&q={urllib.parse.quote(titulo_curto)}"
 
 # ==========================================
 # MOTORES DE BUSCA: VIAGENS
@@ -140,7 +147,7 @@ def buscar_pacotes_completos(origem, destino, ida, volta, adt, cri, idades, orc_
         return []
 
 # ==========================================
-# MOTORES DE BUSCA: PRODUTOS (COM EXTRATOR)
+# MOTORES DE BUSCA: PRODUTOS (COM BLINDAGEM TWILIO)
 # ==========================================
 def buscar_produtos_google(metodo, produto_base, marca, termos_excluir, link_produto, orcamento):
     try:
@@ -178,10 +185,7 @@ def buscar_produtos_google(metodo, produto_base, marca, termos_excluir, link_pro
                 
                 if preco <= orcamento:
                     titulo = item.get("title", "")
-                    link_loja = item.get("link", "")
-                    link_shopping = item.get("product_link", "")
-                    
-                    link_final = limpar_link_oferta(link_loja, link_shopping)
+                    link_final = obter_link_seguro(item, titulo)
                         
                     encontrados.append({
                         "nome": titulo,
@@ -193,15 +197,13 @@ def buscar_produtos_google(metodo, produto_base, marca, termos_excluir, link_pro
         
         elif "product_results" in res:
             nome_produto = res.get("product_results", {}).get("title", "Produto Rastreado")
-            link_shopping = res.get("product_results", {}).get("product_link", "")
             
             for seller in res.get("sellers_results", {}).get("online_sellers", []):
                 preco_bruto = seller.get("base_price")
                 preco = parse_price(preco_bruto)
                 
                 if preco <= orcamento:
-                    link_loja = seller.get("link", "")
-                    link_final = limpar_link_oferta(link_loja, link_shopping)
+                    link_final = obter_link_seguro(seller, nome_produto)
                         
                     encontrados.append({
                         "nome": nome_produto,
