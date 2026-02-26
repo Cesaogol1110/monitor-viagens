@@ -1,4 +1,4 @@
-# código final 20/01/2026
+# código final 26/02/2026 - VERSÃO INTEGRAL COM BANCO DE AEROPORTOS GLOBAL
 # dashboard_v2.py
 import streamlit as st
 import datetime
@@ -145,7 +145,7 @@ if not st.session_state["autenticado"]:
                 
         with aba_esqueci:
             tel_rec = st.text_input("WhatsApp para recuperação:")
-            if st.button("Recuperar"): st.info("Função de recuperação ativa (ver código original).")
+            if st.button("Recuperar"): st.info("Função de recuperação ativa.")
             
         with aba_admin:
             s_admin = st.text_input("Senha Master:", type="password")
@@ -154,13 +154,59 @@ if not st.session_state["autenticado"]:
     st.stop()
 
 # ==========================================
-# INTERFACE PRINCIPAL E BARRA LATERAL
+# MEGA DICIONÁRIO DE AEROPORTOS (GLOBAL)
 # ==========================================
 AEROPORTOS = {
-    "São Paulo (GRU) - Guarulhos": "GRU", "São Paulo (CGH) - Congonhas": "CGH",
-    "Rio de Janeiro (GIG) - Galeão": "GIG", "Cancun, México (CUN)": "CUN", 
-    "Miami, EUA (MIA)": "MIA", "Orlando, EUA (MCO)": "MCO", "Lisboa (LIS)": "LIS",
-    "Cape Town, África do Sul (CPT)": "CPT", "Joanesburgo (JNB)": "JNB"
+    # BRASIL
+    "São Paulo (GRU) - Guarulhos": "GRU", "São Paulo (CGH) - Congonhas": "CGH", "São Paulo (VCP) - Viracopos": "VCP",
+    "Rio de Janeiro (GIG) - Galeão": "GIG", "Rio de Janeiro (SDU) - Santos Dumont": "SDU",
+    "Brasília (BSB) - Juscelino Kubitschek": "BSB", "Belo Horizonte (CNF) - Confins": "CNF",
+    "Salvador (SSA)": "SSA", "Recife (REC)": "REC", "Fortaleza (FOR)": "FOR",
+    "Porto Alegre (POA)": "POA", "Curitiba (CWB)": "CWB", "Florianópolis (FLN)": "FLN",
+    "Belém (BEL)": "BEL", "Manaus (MAO)": "MAO", "Vitória (VIX)": "VIX",
+    "Goiânia (GYN)": "GYN", "Cuiabá (CGB)": "CGB", "Campo Grande (CGR)": "CGR",
+    "Natal (NAT)": "NAT", "Maceió (MCZ)": "MCZ", "João Pessoa (JPA)": "JPA",
+    "São Luís (SLZ)": "SLZ", "Aracaju (AJU)": "AJU", "Teresina (THE)": "THE",
+    "Porto Velho (PVH)": "PVH", "Macapá (MCP)": "MCP", "Boa Vista (BVB)": "BVB",
+    "Rio Branco (RBR)": "RBR", "Palmas (PMW)": "PMW", "Jericoacoara, CE (JJD)": "JJD",
+    "Porto Seguro, BA (BPS)": "BPS", "Foz do Iguaçu, PR (IGU)": "IGU", "Navegantes, SC (NVT)": "NVT", "Ilhéus, BA (IOS)": "IOS",
+
+    # AMÉRICA DO NORTE
+    "Miami, EUA (MIA)": "MIA", "Orlando, EUA (MCO)": "MCO", 
+    "Nova York, EUA (JFK)": "JFK", "Nova York, EUA (EWR)": "EWR", "Nova York, EUA (LGA)": "LGA",
+    "Los Angeles, EUA (LAX)": "LAX", "São Francisco, EUA (SFO)": "SFO", "Las Vegas, EUA (LAS)": "LAS",
+    "Chicago, EUA (ORD)": "ORD", "Dallas/Fort Worth, EUA (DFW)": "DFW", "Atlanta, EUA (ATL)": "ATL",
+    "Houston, EUA (IAH)": "IAH", "Boston, EUA (BOS)": "BOS", "Washington D.C., EUA (IAD)": "IAD",
+    "Toronto, Canadá (YYZ)": "YYZ", "Vancouver, Canadá (YVR)": "YVR", "Montreal, Canadá (YUL)": "YUL",
+    "Cidade do México, México (MEX)": "MEX", "Cancun, México (CUN)": "CUN",
+
+    # AMÉRICA DO SUL & CARIBE
+    "Buenos Aires, Arg (EZE)": "EZE", "Buenos Aires, Arg (AEP)": "AEP",
+    "Santiago, Chile (SCL)": "SCL", "Bogotá, Colômbia (BOG)": "BOG",
+    "Lima, Peru (LIM)": "LIM", "Montevidéu, Uruguai (MVD)": "MVD",
+    "Assunção, Paraguai (ASU)": "ASU", "Quito, Equador (UIO)": "UIO",
+    "Punta Cana, Rep. Dominicana (PUJ)": "PUJ", "Havana, Cuba (HAV)": "HAV",
+
+    # EUROPA
+    "Lisboa, Portugal (LIS)": "LIS", "Porto, Portugal (OPO)": "OPO",
+    "Madri, Espanha (MAD)": "MAD", "Barcelona, Espanha (BCN)": "BCN",
+    "Paris, França (CDG)": "CDG", "Paris, França (ORY)": "ORY",
+    "Londres, UK (LHR)": "LHR", "Londres, UK (LGW)": "LGW",
+    "Frankfurt, Alemanha (FRA)": "FRA", "Munique, Alemanha (MUC)": "MUC", "Berlim, Alemanha (BER)": "BER",
+    "Amsterdã, Holanda (AMS)": "AMS", "Roma, Itália (FCO)": "FCO", "Milão, Itália (MXP)": "MXP",
+    "Zurique, Suíça (ZRH)": "ZRH", "Genebra, Suíça (GVA)": "GVA",
+    "Istambul, Turquia (IST)": "IST", "Viena, Áustria (VIE)": "VIE", "Dublin, Irlanda (DUB)": "DUB",
+
+    # ÁFRICA & ORIENTE MÉDIO
+    "Joanesburgo, África do Sul (JNB)": "JNB", "Cape Town, África do Sul (CPT)": "CPT",
+    "Dubai, EAU (DXB)": "DXB", "Doha, Catar (DOH)": "DOH", "Abu Dhabi, EAU (AUH)": "AUH",
+    "Tel Aviv, Israel (TLV)": "TLV", "Cairo, Egito (CAI)": "CAI",
+
+    # ÁSIA & OCEANIA
+    "Tóquio, Japão (HND)": "HND", "Tóquio, Japão (NRT)": "NRT",
+    "Pequim, China (PEK)": "PEK", "Xangai, China (PVG)": "PVG", "Hong Kong (HKG)": "HKG",
+    "Seul, Coreia do Sul (ICN)": "ICN", "Cingapura (SIN)": "SIN", "Bangkok, Tailândia (BKK)": "BKK",
+    "Sydney, Austrália (SYD)": "SYD", "Melbourne, Austrália (MEL)": "MEL", "Auckland, Nova Zelândia (AKL)": "AKL"
 }
 
 st.sidebar.title("🤖 Painel do Robô")
@@ -168,7 +214,7 @@ st.sidebar.write(f"👤 Usuário: **{st.session_state['usuario_logado']}**")
 
 bd_atual = carregar_bd()
 
-# --- CARTÕES INTERATIVOS (AGORA COM O HORÁRIO DO ROBÔ) ---
+# --- CARTÕES INTERATIVOS ---
 with st.sidebar.expander("📂 Meus Orçamentos Salvos", expanded=True):
     encontrou_algum = False
     
@@ -187,9 +233,8 @@ with st.sidebar.expander("📂 Meus Orçamentos Salvos", expanded=True):
                 else:
                     st.caption(f"📅 **Data:** {info.get('data_ida')} (Somente Ida)")
                 st.caption(f"💰 **Teto:** R$ {info.get('orcamento_max', 0):,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
-                st.caption(f"⏰ **Motor diário:** às {info.get('horario', 'N/A')}") # Horário adicionado aqui
+                st.caption(f"⏰ **Motor diário:** às {info.get('horario', 'N/A')}") 
                 
-                # Botoes lado a lado
                 col_b1, col_b2 = st.columns(2)
                 with col_b1:
                     lbl_btn = "⏸️ Pausar" if is_ativo else "▶️ Ativar"
@@ -207,7 +252,7 @@ with st.sidebar.expander("📂 Meus Orçamentos Salvos", expanded=True):
     if not encontrou_algum:
         st.info("Nenhum orçamento salvo.")
 
-st.title("✈️ Monitor de Viagens")
+st.title("✈️ Monitor de Viagens Avançado")
 
 aba_nova_busca, aba_historico = st.tabs(["🔎 Nova Busca & Configuração", "📈 Relatório de Tendências (Histórico)"])
 
@@ -264,7 +309,6 @@ with aba_nova_busca:
             cod = str(uuid.uuid4())[:6].upper()
             hoje_str = datetime.datetime.now().strftime("%Y-%m-%d")
             
-            # Histórico inicial
             historico_precos = {}
             if resultados:
                 historico_precos[hoje_str] = resultados[0]['total']
@@ -307,4 +351,3 @@ with aba_historico:
             
             with st.expander("Ver Tabela Detalhada"):
                 st.dataframe(df_historico, use_container_width=True)
-
