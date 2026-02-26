@@ -1,4 +1,4 @@
-# código final 26/02/2026 - ADMIN COM EXCLUSÃO DE USUÁRIO E RESET
+# código final 26/02/2026 - VERSÃO UNIVERSAL (VIAGENS + PRODUTOS)
 # dashboard_v2.py
 import streamlit as st
 import datetime
@@ -10,9 +10,10 @@ import time
 import urllib.parse
 import random
 import pandas as pd
+import re
 from twilio.rest import Client
 
-st.set_page_config(page_title="Monitor de Viagens", layout="wide")
+st.set_page_config(page_title="Monitor Universal", layout="wide")
 
 # ==========================================
 # CONFIGURAÇÕES E CHAVES DO COFRE
@@ -46,7 +47,7 @@ def salvar_bd(dados):
     requests.put(f"{FIREBASE_URL}/monitoramentos.json", json=dados)
 
 # ==========================================
-# MOTOR DE BUSCA (VOOS + HOTÉIS) E WHATSAPP
+# MOTORES DE BUSCA: VIAGENS
 # ==========================================
 def buscar_hoteis_google(cidade, ida, volta, adultos, criancas, idades, quartos, orcamento_parcial):
     url = "https://serpapi.com/search.json"
@@ -94,15 +95,87 @@ def buscar_pacotes_completos(origem, destino, ida, volta, adt, cri, idades, orc_
         return sorted(pacotes, key=lambda x: x["total"])[:5]
     except: return []
 
-def enviar_alerta_whatsapp_painel(numero, pacotes, codigo):
+# ==========================================
+# MOTORES DE BUSCA: PRODUTOS
+# ==========================================
+def buscar_produtos_google(metodo, produto_base, marca, termos_excluir, link_produto, orcamento):
+    try:
+        params = {"hl": "pt-br", "gl": "br", "currency": "BRL", "api_key": SERPAPI_KEY}
+        
+        if metodo == "Filtros":
+            # Monta a query blindada com operadores lógicos do Google
+            query = f"{produto_base}"
+            if marca: query += f" {marca}"
+            if termos_excluir:
+                exclusoes = " ".join([f"-{t.strip()}" for t in termos_excluir.split(",") if t.strip()])
+                query += f" {exclusoes}"
+            params["engine"] = "google_shopping"
+            params["q"] = query
+        else:
+            # Tenta extrair o ID do produto do link colado (ex: prds=pid:123456789)
+            match = re.search(r'pid:(\d+)', link_produto) or re.search(r'product/(\d+)', link_produto)
+            if match:
+                params["engine"] = "google_product"
+                params["product_id"] = match.group(1)
+            else:
+                # Se não achar o ID, pesquisa a URL inteira no shopping
+                params["engine"] = "google_shopping"
+                params["q"] = link_produto
+        
+        res = requests.get("https://serpapi.com/search.json", params=params).json()
+        encontrados = []
+        
+        # Resultados do Google Shopping comum
+        if "shopping_results" in res:
+            for item in res["shopping_results"]:
+                preco = item.get("extracted_price", item.get("price", 999999))
+                if preco <= orcamento:
+                    encontrados.append({
+                        "nome": item.get("title", ""),
+                        "total": preco, # Usamos 'total' para padronizar com as viagens
+                        "loja": item.get("source", ""),
+                        "link": item.get("link", "")
+                    })
+                    if len(encontrados) >= 5: break
+        
+        # Resultados do Google Product (Comparador de preços do item exato)
+        elif "product_results" in res:
+            nome_produto = res.get("product_results", {}).get("title", "Produto Rastreado")
+            for seller in res.get("sellers_results", {}).get("online_sellers", []):
+                preco = seller.get("base_price", 999999)
+                if preco <= orcamento:
+                    encontrados.append({
+                        "nome": nome_produto,
+                        "total": preco,
+                        "loja": seller.get("name", ""),
+                        "link": seller.get("link", "")
+                    })
+                    if len(encontrados) >= 5: break
+                    
+        return sorted(encontrados, key=lambda x: x["total"])
+    except Exception as e:
+        print("Erro Produto:", e)
+        return []
+
+# ==========================================
+# ALERTAS DE WHATSAPP
+# ==========================================
+def enviar_alerta_whatsapp_painel(numero, itens, codigo, tipo_monitoramento="viagem"):
     try:
         client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
-        msg = f"🚀 *{len(pacotes)} OPÇÕES ENCONTRADAS!* (Cód: {codigo})\n\n"
-        for i, p in enumerate(pacotes, 1):
-            msg += f"{i}️⃣ *R$ {p['total']:,.2f}*\n✈️ {p['voo']}\n🏨 {p['hotel']}\n🔗 Voo: {p['link_v']}\n"
-            if p['link_h']: msg += f"🔗 Hotel: {p['link_h']}\n"
-            msg += "\n"
-        msg += "O robô continuará monitorando na frequência escolhida!"
+        
+        if tipo_monitoramento == "viagem":
+            msg = f"✈️ *{len(itens)} OPÇÕES DE VIAGEM!* (Cód: {codigo})\n\n"
+            for i, p in enumerate(itens, 1):
+                msg += f"{i}️⃣ *R$ {p['total']:,.2f}*\n✈️ {p['voo']}\n🏨 {p['hotel']}\n🔗 Voo: {p['link_v']}\n"
+                if p['link_h']: msg += f"🔗 Hotel: {p['link_h']}\n"
+                msg += "\n"
+        else:
+            msg = f"📦 *{len(itens)} OFERTAS DE PRODUTO!* (Cód: {codigo})\n\n"
+            for i, p in enumerate(itens, 1):
+                msg += f"{i}️⃣ *R$ {p['total']:,.2f}* na loja {p['loja']}\n🛒 {p['nome'][:45]}...\n🔗 Link: {p['link']}\n\n"
+                
+        msg += "O sistema continuará monitorando na frequência escolhida!"
         
         num_limpo = str(numero).strip().replace("-", "").replace(" ", "").replace("+", "").replace("whatsapp:", "")
         if len(num_limpo) == 10 or len(num_limpo) == 11:
@@ -122,7 +195,7 @@ if "autenticado" not in st.session_state:
     st.session_state["usuario_logado"] = None
 
 if not st.session_state["autenticado"]:
-    st.title("🔒 Acesso Restrito - Monitor de Viagens")
+    st.title("🔒 Acesso Restrito - Sistema de Monitoramento")
     with st.container(border=True):
         aba_login, aba_cadastro, aba_esqueci, aba_admin = st.tabs(["🔐 Login", "🆕 Ativar Conta", "❓ Esqueci Senha", "👑 Admin"])
         
@@ -162,7 +235,7 @@ if not st.session_state["autenticado"]:
                 
                 if usuarios_bd:
                     st.write(f"**Total de Clientes Registrados:** {len(usuarios_bd)}")
-                    user_to_reset = st.selectbox("Selecione o usuário para gerenciar:", list(usuarios_bd.keys()))
+                    user_to_reset = st.selectbox("Selecione o utilizador para gerenciar:", list(usuarios_bd.keys()))
                     
                     col_adm1, col_adm2 = st.columns(2)
                     with col_adm1:
@@ -170,45 +243,38 @@ if not st.session_state["autenticado"]:
                             usuarios_bd[user_to_reset]["senha"] = "123456"
                             usuarios_bd[user_to_reset]["precisa_trocar_senha"] = True 
                             salvar_usuarios(usuarios_bd)
-                            st.success(f"✅ Senha do cliente {user_to_reset} resetada.")
+                            st.success(f"✅ Senha do utilizador {user_to_reset} resetada.")
                     with col_adm2:
                         if st.button("🗑️ Excluir Usuário", use_container_width=True):
-                            # Deleta o usuário
                             del usuarios_bd[user_to_reset]
                             salvar_usuarios(usuarios_bd)
                             
-                            # Deleta os orçamentos atrelados a esse usuário
                             bd_geral = carregar_bd()
                             codigos_para_remover = [cod for cod, info in bd_geral.items() if info.get("telefone") == user_to_reset]
-                            for cod in codigos_para_remover:
-                                del bd_geral[cod]
-                            if codigos_para_remover:
-                                salvar_bd(bd_geral)
+                            for cod in codigos_para_remover: del bd_geral[cod]
+                            if codigos_para_remover: salvar_bd(bd_geral)
                             
-                            st.success(f"✅ Usuário {user_to_reset} e seus orçamentos foram excluídos!")
+                            st.success(f"✅ Usuário {user_to_reset} e orçamentos excluídos!")
                             time.sleep(1.5)
                             st.rerun()
-                else:
-                    st.info("Nenhum usuário cadastrado no banco de dados ainda.")
+                else: st.info("Nenhum utilizador registado.")
     st.stop()
 
 # ==========================================
 # MEGA DICIONÁRIO DE AEROPORTOS (GLOBAL)
 # ==========================================
 AEROPORTOS = {
-    "São Paulo (GRU) - Guarulhos": "GRU", "São Paulo (CGH) - Congonhas": "CGH", "São Paulo (VCP) - Viracopos": "VCP",
-    "Rio de Janeiro (GIG) - Galeão": "GIG", "Rio de Janeiro (SDU) - Santos Dumont": "SDU",
-    "Brasília (BSB)": "BSB", "Belo Horizonte (CNF)": "CNF", "Salvador (SSA)": "SSA", "Recife (REC)": "REC", "Fortaleza (FOR)": "FOR",
+    "São Paulo (GRU)": "GRU", "São Paulo (CGH)": "CGH", "Rio de Janeiro (GIG)": "GIG", "Rio de Janeiro (SDU)": "SDU",
+    "Brasília (BSB)": "BSB", "Salvador (SSA)": "SSA", "Recife (REC)": "REC", "Fortaleza (FOR)": "FOR",
     "Miami, EUA (MIA)": "MIA", "Orlando, EUA (MCO)": "MCO", "Nova York, EUA (JFK)": "JFK",
     "Cancun, México (CUN)": "CUN", "Lisboa, Portugal (LIS)": "LIS", "Paris, França (CDG)": "CDG",
     "Londres, UK (LHR)": "LHR", "Madri, Espanha (MAD)": "MAD", "Buenos Aires, Arg (EZE)": "EZE",
-    "Santiago, Chile (SCL)": "SCL", "Cape Town, África do Sul (CPT)": "CPT", "Joanesburgo (JNB)": "JNB"
+    "Santiago, Chile (SCL)": "SCL", "Cape Town (CPT)": "CPT", "Joanesburgo (JNB)": "JNB"
 }
 
 st.sidebar.title("🤖 Painel do Robô")
 st.sidebar.write(f"👤 Usuário: **{st.session_state['usuario_logado']}**")
 
-# --- BOTÃO DE SAIR ---
 if st.sidebar.button("🚪 Sair (Logout)", use_container_width=True):
     st.session_state["autenticado"] = False
     st.session_state["usuario_logado"] = None
@@ -225,11 +291,18 @@ with st.sidebar.expander("📂 Meus Orçamentos Salvos", expanded=True):
             encontrou_algum = True
             is_ativo = info.get("monitorar", False)
             status_str = "✅ Ativo" if is_ativo else "⏸️ Pausado"
+            tipo_mon = info.get("tipo_monitoramento", "viagem") # Identifica se é voo ou produto
             
             with st.container(border=True):
                 st.markdown(f"**Cód: {c}** | {status_str}")
-                st.caption(f"🛫 **Rota:** {info.get('origem', 'N/A')} ➡️ {info.get('destino', 'N/A')}")
-                st.caption(f"📅 **Data:** {info.get('data_ida')}")
+                
+                if tipo_mon == "viagem":
+                    st.caption(f"🛫 **Rota:** {info.get('origem', 'N/A')} ➡️ {info.get('destino', 'N/A')}")
+                    st.caption(f"📅 **Data:** {info.get('data_ida')}")
+                else:
+                    st.caption(f"📦 **Produto:** {info.get('produto_base', 'Link Específico')}")
+                    st.caption(f"🔎 **Modo:** {info.get('metodo_busca', 'N/A')}")
+                
                 st.caption(f"💰 **Teto:** R$ {info.get('orcamento_max', 0):,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
                 st.caption(f"⏰ **Freq:** {info.get('frequencia', 'Diariamente')} (Base: {info.get('horario', 'N/A')})") 
                 
@@ -240,22 +313,24 @@ with st.sidebar.expander("📂 Meus Orçamentos Salvos", expanded=True):
                         bd_atual[c]["monitorar"] = not is_ativo
                         salvar_bd(bd_atual)
                         st.rerun() 
-                
                 with col_b2:
                     if st.button("🗑️ Excluir", key=f"del_{c}", use_container_width=True):
                         del bd_atual[c]
                         salvar_bd(bd_atual)
                         st.rerun() 
-    
     if not encontrou_algum:
         st.info("Nenhum orçamento salvo.")
 
-st.title("✈️ Monitor de Viagens Avançado")
+st.title("🌐 Monitor Universal (Viagens e Produtos)")
 
-aba_nova_busca, aba_historico = st.tabs(["🔎 Nova Busca & Configuração", "📈 Relatório de Tendências (Histórico)"])
+aba_nova_busca, aba_historico = st.tabs(["🔎 Nova Configuração", "📈 Relatório de Tendências (Histórico)"])
 
 with aba_nova_busca:
-    with st.expander("⚙️ CONFIGURAR PREMISSAS DA VIAGEM", expanded=True):
+    tipo_monitoramento = st.radio("O que deseja monitorar?", ["✈️ Viagens (Voo + Hotel)", "📦 Produtos (E-commerce)"], horizontal=True)
+    st.divider()
+    
+    if tipo_monitoramento == "✈️ Viagens (Voo + Hotel)":
+        st.header("✈️ Premissas da Viagem")
         tipo_voo = st.radio("Tipo:", ["Ida e Volta", "Somente Ida", "Multidestino"], horizontal=True)
         incluir_hospedagem = st.checkbox("🏨 Adicionar Hospedagem", value=(tipo_voo != "Multidestino"))
         
@@ -265,77 +340,107 @@ with aba_nova_busca:
         with col_ida: d_ida = st.date_input("Ida", datetime.date(2026, 7, 25))
         with col_volta: d_volta = st.date_input("Volta", datetime.date(2026, 8, 1)) if tipo_voo == "Ida e Volta" else None
 
-        st.subheader("🛫 Filtros Aéreos e Orçamento")
-        c1, c2, c3, c4 = st.columns(4)
+        st.subheader("🛫 Filtros e Orçamento")
+        c1, c2, c3 = st.columns(3)
         with c1: orc_max = st.number_input("Orçamento Máx", value=30000)
         with c2: escalas = st.number_input("Máx Escalas", 0, 5, 1)
-        with c3: duracao = st.number_input("Duração (h)", 1, 40, 20)
-        with c4: cia = st.text_input("Cia Aérea", placeholder="Todas")
+        with c3: cia = st.text_input("Cia Aérea", placeholder="Todas")
 
         if incluir_hospedagem:
             st.subheader("🏨 Exigências da Hospedagem")
             colH1, colH2 = st.columns(2)
             with colH1: cidade_hotel = st.text_input("Cidade do Hotel", value="Cancun")
             with colH2: bairros_hotel = st.text_input("Bairro/Preferência", placeholder="Ex: Resort, All Inclusive")
+        else: cidade_hotel = ""
+
+        st.subheader("👥 Passageiros")
+        cA, cC, cQ = st.columns(3)
+        with cA: adt = st.number_input("Adultos", 1, 10, 2)
+        with cC: cri = st.number_input("Crianças", 0, 6, 2)
+        with cQ: qrt = st.number_input("Quartos", 1, 5, 1)
+        idades = []
+        if cri > 0:
+            cols_id = st.columns(cri)
+            for j in range(cri):
+                with cols_id[j]: idades.append(st.number_input(f"Idade C{j+1}", 0, 17, 6, key=f"id_{j}"))
+                
+    else:
+        # TELA DE BUSCA DE PRODUTOS
+        st.header("📦 Monitoramento de Preços de Produtos")
+        metodo_busca = st.radio("Escolha o Método de Rastreio:", ["Busca por Filtros (Avançada)", "Rastrear Link Específico (Google Shopping)"])
+        
+        if metodo_busca == "Busca por Filtros (Avançada)":
+            st.info("💡 Exemplo: Produto Base: 'Patinete Elétrico', Marca: 'Xiaomi', Excluir: 'pneu, carregador, infantil'")
+            cP1, cP2 = st.columns(2)
+            with cP1: prod_base = st.text_input("Produto Base (Obrigatório)", placeholder="Ex: iPhone 15 Pro Max")
+            with cP2: prod_marca = st.text_input("Marca / Modelo", placeholder="Ex: Apple")
+            prod_excluir = st.text_input("Palavras a Excluir (separadas por vírgula)", placeholder="Ex: capa, película, acessório, usado")
+            link_produto = ""
         else:
-            cidade_hotel = ""
-
-        col_p1, col_p2 = st.columns(2)
-        with col_p1:
-            st.subheader("👥 Passageiros")
-            cA, cC, cQ = st.columns(3)
-            with cA: adt = st.number_input("Adultos", 1, 10, 2)
-            with cC: cri = st.number_input("Crianças", 0, 6, 2)
-            with cQ: qrt = st.number_input("Quartos", 1, 5, 1)
-            idades = []
-            if cri > 0:
-                cols_id = st.columns(cri)
-                for j in range(cri):
-                    with cols_id[j]: idades.append(st.number_input(f"Idade C{j+1}", 0, 17, 6, key=f"id_{j}"))
-        with col_p2:
-            st.subheader("📱 Alerta Automático")
-            cz1, cz2, cz3 = st.columns(3)
-            with cz1: 
-                tel_alerta = st.text_input("WhatsApp", value=st.session_state["usuario_logado"], disabled=True)
-            with cz2:
-                opcoes_frequencia = ["Diariamente", "A cada hora", "2 vezes por dia", "4 vezes por dia", "Semanalmente", "Mensalmente"]
-                freq_alerta = st.selectbox("Frequência", opcoes_frequencia)
-            with cz3:
-                hora_a = st.time_input("Horário Base", datetime.time(9, 45))
-
-    if st.button("Buscar Pacotes & Salvar Automação", type="primary", use_container_width=True):
-        with st.spinner("🚀 Consultando Google Flights & Hotels..."):
-            ida_s = d_ida.strftime("%Y-%m-%d")
-            vlt_s = d_volta.strftime("%Y-%m-%d") if d_volta else ""
+            st.info("💡 Encontre o produto no Google Shopping, copie o link e cole abaixo para rastrear a tabela de preços do item exato.")
+            link_produto = st.text_input("Cole o Link do Google Shopping aqui:")
+            prod_base = "Produto por Link"
+            prod_marca = ""
+            prod_excluir = ""
             
-            resultados = buscar_pacotes_completos(AEROPORTOS[origem_n], AEROPORTOS[destino_n], ida_s, vlt_s, adt, cri, idades, orc_max, incluir_hospedagem, cidade_hotel)
-            
+        st.subheader("💰 Orçamento do Produto")
+        orc_max = st.number_input("Orçamento Máximo (R$)", value=5000)
+
+    # --- CAMPOS COMUNS (WHATSAPP E FREQUÊNCIA) ---
+    st.divider()
+    st.subheader("📱 Configuração do Robô de Alertas")
+    cz1, cz2, cz3 = st.columns(3)
+    with cz1: 
+        tel_alerta = st.text_input("WhatsApp de Destino", value=st.session_state["usuario_logado"], disabled=True)
+    with cz2:
+        opcoes_frequencia = ["Diariamente", "A cada hora", "2 vezes por dia", "4 vezes por dia", "Semanalmente", "Mensalmente"]
+        freq_alerta = st.selectbox("Frequência de Monitoramento", opcoes_frequencia)
+    with cz3:
+        hora_a = st.time_input("Horário Base do Alerta", datetime.time(9, 45))
+
+    if st.button("Buscar e Salvar Automação", type="primary", use_container_width=True):
+        with st.spinner("🚀 Consultando inteligência do Google..."):
             cod = str(uuid.uuid4())[:6].upper()
             hoje_str = datetime.datetime.now().strftime("%Y-%m-%d")
-            
             historico_precos = {}
-            if resultados:
-                historico_precos[hoje_str] = resultados[0]['total']
             
-            bd_atual[cod] = {
-                "monitorar": True, "telefone": tel_alerta, "horario": hora_a.strftime("%H:%M"),
-                "frequencia": freq_alerta, "data_criacao": hoje_str,
-                "origem": AEROPORTOS[origem_n], "destino": AEROPORTOS[destino_n], "orcamento_max": orc_max,
-                "data_ida": ida_s, "data_volta": vlt_s, "adultos": adt, "criancas": cri, 
-                "ultimo_disparo": "", "ultimo_disparo_full": "", 
-                "incluir_hospedagem": incluir_hospedagem, "cidade_hotel": cidade_hotel,
-                "historico": historico_precos
-            }
+            if tipo_monitoramento == "✈️ Viagens (Voo + Hotel)":
+                ida_s = d_ida.strftime("%Y-%m-%d")
+                vlt_s = d_volta.strftime("%Y-%m-%d") if d_volta else ""
+                resultados = buscar_pacotes_completos(AEROPORTOS[origem_n], AEROPORTOS[destino_n], ida_s, vlt_s, adt, cri, idades, orc_max, incluir_hospedagem, cidade_hotel)
+                
+                if resultados: historico_precos[hoje_str] = resultados[0]['total']
+                
+                bd_atual[cod] = {
+                    "tipo_monitoramento": "viagem",
+                    "monitorar": True, "telefone": tel_alerta, "horario": hora_a.strftime("%H:%M"), "frequencia": freq_alerta, "data_criacao": hoje_str,
+                    "origem": AEROPORTOS[origem_n], "destino": AEROPORTOS[destino_n], "orcamento_max": orc_max,
+                    "data_ida": ida_s, "data_volta": vlt_s, "adultos": adt, "criancas": cri, 
+                    "ultimo_disparo": "", "ultimo_disparo_full": "", 
+                    "incluir_hospedagem": incluir_hospedagem, "cidade_hotel": cidade_hotel,
+                    "historico": historico_precos
+                }
+            else:
+                resultados = buscar_produtos_google(metodo_busca, prod_base, prod_marca, prod_excluir, link_produto, orc_max)
+                
+                if resultados: historico_precos[hoje_str] = resultados[0]['total']
+                
+                bd_atual[cod] = {
+                    "tipo_monitoramento": "produto",
+                    "metodo_busca": metodo_busca, "produto_base": prod_base, "marca": prod_marca, "termos_excluir": prod_excluir, "link_produto": link_produto,
+                    "monitorar": True, "telefone": tel_alerta, "horario": hora_a.strftime("%H:%M"), "frequencia": freq_alerta, "data_criacao": hoje_str,
+                    "orcamento_max": orc_max, "ultimo_disparo": "", "ultimo_disparo_full": "", "historico": historico_precos
+                }
+
             salvar_bd(bd_atual)
             
             if resultados:
-                sucesso_wa, erro_wa = enviar_alerta_whatsapp_painel(tel_alerta, resultados, cod)
-                if sucesso_wa:
-                    st.success(f"✅ ORÇAMENTO {cod} ATIVADO! A busca instantânea foi enviada para o WhatsApp.")
-                else:
-                    st.error(f"⚠️ ORÇAMENTO SALVO, mas o Twilio bloqueou o envio para {tel_alerta}!\n\n**Causa raiz enviada pelo Twilio:** {erro_wa}")
+                tipo_str = "viagem" if tipo_monitoramento == "✈️ Viagens (Voo + Hotel)" else "produto"
+                sucesso_wa, erro_wa = enviar_alerta_whatsapp_painel(tel_alerta, resultados, cod, tipo_str)
+                if sucesso_wa: st.success(f"✅ ATIVADO! A busca instantânea foi enviada para o WhatsApp.")
+                else: st.error(f"⚠️ Salvo, mas o Twilio bloqueou: {erro_wa}")
             else: 
-                st.warning(f"✅ ORÇAMENTO {cod} ATIVADO! Nenhuma opção no teto de R$ {orc_max}, mas o robô ficará vigiando.")
+                st.warning(f"✅ ATIVADO! Nenhuma opção no teto de R$ {orc_max}, mas o robô ficará vigiando.")
             
             time.sleep(2)
             st.rerun() 
@@ -344,17 +449,20 @@ with aba_historico:
     st.subheader("📉 Análise de Tendência de Preços")
     codigos_usuario = {c: info for c, info in bd_atual.items() if info.get("telefone") == st.session_state["usuario_logado"]}
     if not codigos_usuario:
-        st.info("Você ainda não tem orçamentos salvos para gerar relatórios.")
+        st.info("Ainda não tem orçamentos salvos para gerar relatórios.")
     else:
         cod_selecionado = st.selectbox("Selecione o Código do Orçamento:", list(codigos_usuario.keys()))
         dados_orcamento = codigos_usuario[cod_selecionado]
-        st.write(f"**Destino:** {dados_orcamento.get('destino')} | **Data Ida:** {dados_orcamento.get('data_ida')}")
+        
+        if dados_orcamento.get("tipo_monitoramento", "viagem") == "viagem":
+            st.write(f"✈️ **Viagem:** {dados_orcamento.get('destino')} | **Ida:** {dados_orcamento.get('data_ida')}")
+        else:
+            st.write(f"📦 **Produto:** {dados_orcamento.get('produto_base')}")
         
         historico_dados = dados_orcamento.get("historico", {})
         if not historico_dados:
-            st.warning("O robô ainda não coletou dados de preço suficientes para este código.")
+            st.warning("O robô ainda não recolheu dados de preço suficientes para este código.")
         else:
             df_historico = pd.DataFrame(list(historico_dados.items()), columns=['Data da Busca', 'Menor Preço (R$)'])
             df_historico['Data da Busca'] = pd.to_datetime(df_historico['Data da Busca'])
-            df_historico['Dia da Semana'] = df_historico['Data da Busca'].dt.day_name()
             st.line_chart(df_historico.set_index('Data da Busca')['Menor Preço (R$)'])
