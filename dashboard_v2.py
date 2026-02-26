@@ -1,4 +1,4 @@
-# código final 26/02/2026 - VERSÃO UNIVERSAL (VIAGENS + PRODUTOS)
+# código final 26/02/2026 - VERSÃO CORREÇÃO DE LINKS E RESULTADOS NA TELA
 # dashboard_v2.py
 import streamlit as st
 import datetime
@@ -96,14 +96,13 @@ def buscar_pacotes_completos(origem, destino, ida, volta, adt, cri, idades, orc_
     except: return []
 
 # ==========================================
-# MOTORES DE BUSCA: PRODUTOS
+# MOTORES DE BUSCA: PRODUTOS (CORRIGIDO)
 # ==========================================
 def buscar_produtos_google(metodo, produto_base, marca, termos_excluir, link_produto, orcamento):
     try:
         params = {"hl": "pt-br", "gl": "br", "currency": "BRL", "api_key": SERPAPI_KEY}
         
         if metodo == "Filtros":
-            # Monta a query blindada com operadores lógicos do Google
             query = f"{produto_base}"
             if marca: query += f" {marca}"
             if termos_excluir:
@@ -112,43 +111,44 @@ def buscar_produtos_google(metodo, produto_base, marca, termos_excluir, link_pro
             params["engine"] = "google_shopping"
             params["q"] = query
         else:
-            # Tenta extrair o ID do produto do link colado (ex: prds=pid:123456789)
             match = re.search(r'pid:(\d+)', link_produto) or re.search(r'product/(\d+)', link_produto)
             if match:
                 params["engine"] = "google_product"
                 params["product_id"] = match.group(1)
             else:
-                # Se não achar o ID, pesquisa a URL inteira no shopping
                 params["engine"] = "google_shopping"
                 params["q"] = link_produto
         
         res = requests.get("https://serpapi.com/search.json", params=params).json()
         encontrados = []
         
-        # Resultados do Google Shopping comum
         if "shopping_results" in res:
             for item in res["shopping_results"]:
                 preco = item.get("extracted_price", item.get("price", 999999))
                 if preco <= orcamento:
+                    # NOVIDADE: Busca blindada para garantir que o link exista
+                    titulo = item.get("title", "")
+                    link_oferta = item.get("link") or item.get("product_link") or f"https://www.google.com/search?q={urllib.parse.quote(titulo)}&tbm=shop"
+                    
                     encontrados.append({
-                        "nome": item.get("title", ""),
-                        "total": preco, # Usamos 'total' para padronizar com as viagens
-                        "loja": item.get("source", ""),
-                        "link": item.get("link", "")
+                        "nome": titulo,
+                        "total": preco, 
+                        "loja": item.get("source", "Loja não informada"),
+                        "link": link_oferta
                     })
                     if len(encontrados) >= 5: break
         
-        # Resultados do Google Product (Comparador de preços do item exato)
         elif "product_results" in res:
             nome_produto = res.get("product_results", {}).get("title", "Produto Rastreado")
             for seller in res.get("sellers_results", {}).get("online_sellers", []):
                 preco = seller.get("base_price", 999999)
                 if preco <= orcamento:
+                    link_oferta = seller.get("link") or f"https://www.google.com/search?q={urllib.parse.quote(nome_produto)}&tbm=shop"
                     encontrados.append({
                         "nome": nome_produto,
                         "total": preco,
-                        "loja": seller.get("name", ""),
-                        "link": seller.get("link", "")
+                        "loja": seller.get("name", "Loja não informada"),
+                        "link": link_oferta
                     })
                     if len(encontrados) >= 5: break
                     
@@ -168,7 +168,7 @@ def enviar_alerta_whatsapp_painel(numero, itens, codigo, tipo_monitoramento="via
             msg = f"✈️ *{len(itens)} OPÇÕES DE VIAGEM!* (Cód: {codigo})\n\n"
             for i, p in enumerate(itens, 1):
                 msg += f"{i}️⃣ *R$ {p['total']:,.2f}*\n✈️ {p['voo']}\n🏨 {p['hotel']}\n🔗 Voo: {p['link_v']}\n"
-                if p['link_h']: msg += f"🔗 Hotel: {p['link_h']}\n"
+                if p.get('link_h'): msg += f"🔗 Hotel: {p['link_h']}\n"
                 msg += "\n"
         else:
             msg = f"📦 *{len(itens)} OFERTAS DE PRODUTO!* (Cód: {codigo})\n\n"
@@ -291,7 +291,7 @@ with st.sidebar.expander("📂 Meus Orçamentos Salvos", expanded=True):
             encontrou_algum = True
             is_ativo = info.get("monitorar", False)
             status_str = "✅ Ativo" if is_ativo else "⏸️ Pausado"
-            tipo_mon = info.get("tipo_monitoramento", "viagem") # Identifica se é voo ou produto
+            tipo_mon = info.get("tipo_monitoramento", "viagem") 
             
             with st.container(border=True):
                 st.markdown(f"**Cód: {c}** | {status_str}")
@@ -365,7 +365,6 @@ with aba_nova_busca:
                 with cols_id[j]: idades.append(st.number_input(f"Idade C{j+1}", 0, 17, 6, key=f"id_{j}"))
                 
     else:
-        # TELA DE BUSCA DE PRODUTOS
         st.header("📦 Monitoramento de Preços de Produtos")
         metodo_busca = st.radio("Escolha o Método de Rastreio:", ["Busca por Filtros (Avançada)", "Rastrear Link Específico (Google Shopping)"])
         
@@ -386,7 +385,6 @@ with aba_nova_busca:
         st.subheader("💰 Orçamento do Produto")
         orc_max = st.number_input("Orçamento Máximo (R$)", value=5000)
 
-    # --- CAMPOS COMUNS (WHATSAPP E FREQUÊNCIA) ---
     st.divider()
     st.subheader("📱 Configuração do Robô de Alertas")
     cz1, cz2, cz3 = st.columns(3)
@@ -434,16 +432,32 @@ with aba_nova_busca:
 
             salvar_bd(bd_atual)
             
+            # NOVIDADE: AQUI MOSTRAMOS OS RESULTADOS NA TELA SEM APAGAR COM RERUN
             if resultados:
                 tipo_str = "viagem" if tipo_monitoramento == "✈️ Viagens (Voo + Hotel)" else "produto"
                 sucesso_wa, erro_wa = enviar_alerta_whatsapp_painel(tel_alerta, resultados, cod, tipo_str)
-                if sucesso_wa: st.success(f"✅ ATIVADO! A busca instantânea foi enviada para o WhatsApp.")
-                else: st.error(f"⚠️ Salvo, mas o Twilio bloqueou: {erro_wa}")
+                
+                if sucesso_wa: 
+                    st.success(f"✅ ATIVADO! A busca instantânea foi enviada para o WhatsApp.")
+                else: 
+                    st.error(f"⚠️ Salvo, mas o Twilio bloqueou: {erro_wa}")
+                
+                st.subheader("🔎 Opções Encontradas Agora:")
+                for r in resultados:
+                    with st.container(border=True):
+                        if tipo_monitoramento == "✈️ Viagens (Voo + Hotel)":
+                            st.write(f"💰 **R$ {r['total']:,.2f}**")
+                            st.write(f"✈️ Voo: {r['voo']} | 🏨 Hotel: {r['hotel']}")
+                            if r.get('link_h'):
+                                st.markdown(f"[🔗 Ver Voo]({r['link_v']}) | [🔗 Ver Hotel]({r['link_h']})")
+                            else:
+                                st.markdown(f"[🔗 Ver Voo]({r['link_v']})")
+                        else:
+                            st.write(f"💰 **R$ {r['total']:,.2f}** | 🏬 Loja: {r['loja']}")
+                            st.write(f"📦 {r['nome']}")
+                            st.markdown(f"[🔗 Acessar Oferta]({r['link']})")
             else: 
                 st.warning(f"✅ ATIVADO! Nenhuma opção no teto de R$ {orc_max}, mas o robô ficará vigiando.")
-            
-            time.sleep(2)
-            st.rerun() 
 
 with aba_historico:
     st.subheader("📉 Análise de Tendência de Preços")
