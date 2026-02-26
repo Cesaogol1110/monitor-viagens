@@ -1,4 +1,4 @@
-# código final 26/02/2026 - LINKS CIRÚRGICOS (PRODUCT_LINK)
+# código final 20/01/2026
 # dashboard_v2.py
 import streamlit as st
 import datetime
@@ -120,7 +120,7 @@ def buscar_pacotes_completos(origem, destino, ida, volta, adt, cri, idades, orc_
         return []
 
 # ==========================================
-# MOTORES DE BUSCA: PRODUTOS
+# MOTORES DE BUSCA: PRODUTOS (COM ID BLINDADO)
 # ==========================================
 def buscar_produtos_google(metodo, produto_base, marca, termos_excluir, link_produto, orcamento):
     try:
@@ -160,18 +160,21 @@ def buscar_produtos_google(metodo, produto_base, marca, termos_excluir, link_pro
                 
                 if preco <= orcamento:
                     titulo = item.get("title", "")
-                    
-                    # 1. Tenta o link da loja
                     link_oferta = item.get("link", "")
+                    product_id = item.get("product_id", "")
                     
-                    # 2. Se for link mobile quebrado (ibp), usa o product_link da página do modelo no Google Shopping
-                    if not link_oferta or "ibp=oshop" in link_oferta or not link_oferta.startswith("http"):
-                        link_oferta = item.get("product_link", "")
-                    
-                    # 3. Se não tiver nenhum dos dois, força a pesquisa cravada com aspas
-                    if not link_oferta or not link_oferta.startswith("http"):
-                        busca_exata = f'"{titulo}"'
-                        link_oferta = f"https://www.google.com.br/search?tbm=shop&q={urllib.parse.quote(busca_exata)}"
+                    # 1. ROTA SEGURA: Se houver um ID, cria o link oficial do Google Shopping (imutável)
+                    if product_id:
+                        link_oferta = f"https://www.google.com.br/shopping/product/{product_id}"
+                    # 2. Se não houver ID e o link estiver quebrado, tenta forçar a limpeza
+                    elif not link_oferta or "ibp=oshop" in link_oferta or not link_oferta.startswith("http"):
+                        clean_link = link_oferta.replace("ibp=oshop&", "").replace("?ibp=oshop", "")
+                        if clean_link.startswith("http"):
+                            link_oferta = clean_link
+                        else:
+                            # Último recurso: busca pelo nome com aspas duplas (busca restrita)
+                            busca_exata = f'"{titulo}"'
+                            link_oferta = f"https://www.google.com.br/search?tbm=shop&q={urllib.parse.quote(busca_exata)}"
                     
                     encontrados.append({
                         "nome": titulo,
@@ -183,10 +186,8 @@ def buscar_produtos_google(metodo, produto_base, marca, termos_excluir, link_pro
         
         elif "product_results" in res:
             nome_produto = res.get("product_results", {}).get("title", "Produto Rastreado")
-            # Página mãe do produto
-            link_matriz = res.get("search_metadata", {}).get("google_url", "")
-            if not link_matriz:
-                link_matriz = f"https://www.google.com.br/search?tbm=shop&q={urllib.parse.quote(chr(34) + nome_produto + chr(34))}"
+            product_id = res.get("product_results", {}).get("product_id", "")
+            link_matriz = f"https://www.google.com.br/shopping/product/{product_id}" if product_id else ""
             
             for seller in res.get("sellers_results", {}).get("online_sellers", []):
                 preco_bruto = seller.get("base_price")
@@ -194,9 +195,14 @@ def buscar_produtos_google(metodo, produto_base, marca, termos_excluir, link_pro
                 
                 if preco <= orcamento:
                     link_oferta = seller.get("link", "")
-                    # Se o link do vendedor falhar, aponta para a página de comparação do Google
+                    
+                    # Se o link da loja vier quebrado com o ibp=oshop, direciona para a página matriz do modelo
                     if not link_oferta or "ibp=oshop" in link_oferta or not link_oferta.startswith("http"):
-                        link_oferta = link_matriz
+                        if link_matriz:
+                            link_oferta = link_matriz
+                        else:
+                            busca_exata = f'"{nome_produto}"'
+                            link_oferta = f"https://www.google.com.br/search?tbm=shop&q={urllib.parse.quote(busca_exata)}"
                         
                     encontrados.append({
                         "nome": nome_produto,
