@@ -52,16 +52,16 @@ def salvar_bd(dados):
 def parse_price(val):
     if val is None: return 999999.0
     if isinstance(val, (int, float)): return float(val)
-    # Remove R$, espaços e converte para padrão matemático
-    val = str(val).upper().replace("R$", "").replace("BRL", "").strip()
-    if "." in val and "," in val:
-        val = val.replace(".", "").replace(",", ".")
-    elif "," in val:
-        val = val.replace(",", ".")
-    try:
-        return float(val)
-    except:
-        return 999999.0
+    val_str = str(val).upper().replace("R$", "").replace("BRL", "").strip()
+    match = re.search(r'[\d\.,]+', val_str)
+    if not match: return 999999.0
+    num_str = match.group(0)
+    if "." in num_str and "," in num_str:
+        num_str = num_str.replace(".", "").replace(",", ".")
+    elif "," in num_str:
+        num_str = num_str.replace(",", ".")
+    try: return float(num_str)
+    except: return 999999.0
 
 # ==========================================
 # MOTORES DE BUSCA: VIAGENS
@@ -77,7 +77,7 @@ def buscar_hoteis_google(cidade, ida, volta, adultos, criancas, idades, quartos,
         res = requests.get(url, params=params).json()
         hoteis = []
         for h in res.get("properties", [])[:10]:
-            preco = h.get("total_rate", {}).get("extracted_lowest", 0)
+            preco = parse_price(h.get("total_rate", {}).get("extracted_lowest", 0))
             if preco > 0:
                 hoteis.append({"nome": h.get("name"), "preco": preco, "nota": h.get("overall_rating", 0), "link": h.get("link")})
         return hoteis
@@ -92,6 +92,12 @@ def buscar_pacotes_completos(origem, destino, ida, volta, adt, cri, idades, orc_
     }
     try:
         res = requests.get(url, params=params).json()
+        
+        # RAIO-X: Erros da SerpApi para Voos
+        if "error" in res:
+            st.error(f"🚫 Erro da SerpApi (Voos): {res['error']}")
+            return []
+            
         voos = (res.get("best_flights", []) + res.get("other_flights", []))
         link_voo = res.get("search_metadata", {}).get("google_flights_url")
         
@@ -101,7 +107,7 @@ def buscar_pacotes_completos(origem, destino, ida, volta, adt, cri, idades, orc_
             
         pacotes = []
         for v in voos[:5]:
-            p_voo = v.get("price", 0)
+            p_voo = parse_price(v.get("price", 0))
             if incluir_h and hoteis:
                 for h in hoteis[:2]: 
                     if (p_voo + h["preco"]) <= orc_total:
@@ -110,14 +116,17 @@ def buscar_pacotes_completos(origem, destino, ida, volta, adt, cri, idades, orc_
                 pacotes.append({"total": p_voo, "voo": v["flights"][0]["airline"], "hotel": "Apenas Voo", "link_v": link_voo, "link_h": ""})
         
         return sorted(pacotes, key=lambda x: x["total"])[:5]
-    except: return []
+    except Exception as e: 
+        st.error(f"Erro Crítico ao buscar Viagem: {e}")
+        return []
 
 # ==========================================
-# MOTORES DE BUSCA: PRODUTOS (COM PARSER INTELIGENTE)
+# MOTORES DE BUSCA: PRODUTOS
 # ==========================================
 def buscar_produtos_google(metodo, produto_base, marca, termos_excluir, link_produto, orcamento):
     try:
-        params = {"hl": "pt-br", "gl": "br", "currency": "BRL", "api_key": SERPAPI_KEY}
+        # Domínio explícito para forçar o Shopping Brasil
+        params = {"hl": "pt-br", "gl": "br", "google_domain": "google.com.br", "currency": "BRL", "api_key": SERPAPI_KEY}
         
         if metodo == "Filtros":
             query = f"{produto_base}"
@@ -137,6 +146,14 @@ def buscar_produtos_google(metodo, produto_base, marca, termos_excluir, link_pro
                 params["q"] = link_produto
         
         res = requests.get("https://serpapi.com/search.json", params=params).json()
+        
+        # RAIO-X: Mostra erro na tela se os créditos acabarem ou o Google bloquear
+        if "error" in res:
+            st.error(f"🚫 Falha na Busca do Google: {res['error']}")
+            if "exhausted" in res["error"].lower() or "credits" in res["error"].lower():
+                st.warning("💡 O seu plano da SerpApi atingiu o limite (100 buscas gratuitas). Será necessário aguardar a renovação ou criar uma nova chave de API.")
+            return []
+            
         encontrados = []
         
         if "shopping_results" in res:
@@ -174,7 +191,7 @@ def buscar_produtos_google(metodo, produto_base, marca, termos_excluir, link_pro
                     
         return sorted(encontrados, key=lambda x: x["total"])
     except Exception as e:
-        print("Erro Produto:", e)
+        st.error(f"Erro Crítico ao buscar Produto: {e}")
         return []
 
 # ==========================================
@@ -452,7 +469,6 @@ with aba_nova_busca:
 
             salvar_bd(bd_atual)
             
-            # ATENÇÃO: RERUN REMOVIDO DAQUI PARA A TELA NÃO APAGAR.
             if resultados:
                 tipo_str = "viagem" if tipo_monitoramento == "✈️ Viagens (Voo + Hotel)" else "produto"
                 sucesso_wa, erro_wa = enviar_alerta_whatsapp_painel(tel_alerta, resultados, cod, tipo_str)
@@ -477,7 +493,8 @@ with aba_nova_busca:
                             st.write(f"📦 {r['nome']}")
                             st.markdown(f"[🔗 Acessar Oferta]({r['link']})")
             else: 
-                st.warning(f"✅ ATIVADO! Nenhuma opção no teto de R$ {orc_max}, mas o robô ficará vigiando.")
+                # A tela de aviso para quando a busca vem vazia (o que explica por que não enviou mensagem)
+                st.warning(f"🔔 ORÇAMENTO SALVO! O robô ficará vigiando, mas não enviou alerta agora porque não encontrou nenhuma opção no teto de R$ {orc_max}.")
 
 with aba_historico:
     st.subheader("📉 Análise de Tendência de Preços")
