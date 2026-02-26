@@ -78,7 +78,7 @@ if not st.session_state["autenticado"]:
         
         with aba_login:
             st.subheader("Já tenho uma conta")
-            tel_login = st.text_input("Seu Telefone (Login):", placeholder="Ex: 11999999999", key="login_tel")
+            tel_login = st.text_input("Seu Telefone (Login com +55 e DDD):", placeholder="Ex: +5511999999999", key="login_tel")
             senha_login = st.text_input("Sua Senha:", type="password", key="login_senha")
             
             if st.button("Entrar", type="primary", use_container_width=True):
@@ -87,7 +87,6 @@ if not st.session_state["autenticado"]:
                     st.session_state["autenticado"] = True
                     st.session_state["usuario_logado"] = tel_login
                     
-                    # Verifica se o usuário precisa trocar a senha provisória
                     if usuarios[tel_login].get("precisa_trocar_senha", False) or senha_login == "123456":
                         st.session_state["exigir_troca_senha"] = True
                     else:
@@ -102,7 +101,7 @@ if not st.session_state["autenticado"]:
             st.write("Insira o código recebido após o pagamento para criar seu login.")
             codigo_ativacao = st.text_input("Código de Ativação (Stripe):", type="password")
             st.divider()
-            novo_tel = st.text_input("Crie seu Login (Seu Telefone com DDD):", placeholder="Ex: 11999999999")
+            novo_tel = st.text_input("Crie seu Login (WhatsApp com +55 e DDD):", placeholder="Ex: +5511999999999")
             nova_senha = st.text_input("Crie uma Senha Pessoal:", type="password")
             
             if st.button("Criar Conta e Entrar", type="primary", use_container_width=True, key="btn_cad"):
@@ -110,6 +109,8 @@ if not st.session_state["autenticado"]:
                     st.error("❌ Código de ativação inválido ou expirado.")
                 elif not novo_tel or not nova_senha:
                     st.warning("⚠️ Preencha o telefone e a senha desejada.")
+                elif not novo_tel.startswith("+"):
+                    st.warning("⚠️ O número de telefone precisa começar com o sinal de + e o código do país (ex: +5511999999999).")
                 else:
                     usuarios = carregar_usuarios()
                     if novo_tel in usuarios:
@@ -127,25 +128,28 @@ if not st.session_state["autenticado"]:
         with aba_esqueci:
             st.subheader("Recuperar Senha")
             st.write("Enviaremos uma nova senha gerada pelo sistema para o seu WhatsApp.")
-            tel_recuperar = st.text_input("Seu Telefone com DDD:", placeholder="Ex: 11999999999", key="rec_tel")
+            tel_recuperar = st.text_input("Seu Telefone (com +55 e DDD):", placeholder="Ex: +5511999999999", key="rec_tel")
             
             if st.button("Receber Nova Senha", type="primary", use_container_width=True, key="btn_rec"):
-                usuarios = carregar_usuarios()
-                if tel_recuperar in usuarios:
-                    nova_senha_random = str(random.randint(100000, 999999))
-                    usuarios[tel_recuperar]["senha"] = nova_senha_random
-                    usuarios[tel_recuperar]["precisa_trocar_senha"] = True # Marca que a senha é provisória
-                    salvar_usuarios(usuarios)
-                    
-                    msg_recuperacao = f"🔐 *Monitor ARCA - Recuperação de Acesso*\n\nSua senha foi redefinida. A sua nova senha provisória é: *{nova_senha_random}*\n\nFaça o login com ela. O sistema exigirá que você crie uma nova senha em seguida."
-                    sucesso_wa, erro_wa = testar_alerta_whatsapp(tel_recuperar, msg_recuperacao)
-                    
-                    if sucesso_wa:
-                        st.success("✅ Nova senha enviada para o seu WhatsApp com sucesso!")
-                    else:
-                        st.error("⚠️ Ocorreu um erro no envio. Contate o administrador.")
+                if not tel_recuperar.startswith("+"):
+                    st.warning("⚠️ Digite o número completo com o sinal de + (ex: +5511999999999).")
                 else:
-                    st.error("❌ Telefone não encontrado no banco de dados.")
+                    usuarios = carregar_usuarios()
+                    if tel_recuperar in usuarios:
+                        nova_senha_random = str(random.randint(100000, 999999))
+                        usuarios[tel_recuperar]["senha"] = nova_senha_random
+                        usuarios[tel_recuperar]["precisa_trocar_senha"] = True 
+                        salvar_usuarios(usuarios)
+                        
+                        msg_recuperacao = f"🔐 *Monitor ARCA - Recuperação de Acesso*\n\nSua senha foi redefinida. A sua nova senha provisória é: *{nova_senha_random}*\n\nFaça o login com ela. O sistema exigirá que você crie uma nova senha em seguida."
+                        sucesso_wa, erro_wa = testar_alerta_whatsapp(tel_recuperar, msg_recuperacao)
+                        
+                        if sucesso_wa:
+                            st.success("✅ Nova senha enviada para o seu WhatsApp com sucesso!")
+                        else:
+                            st.error("⚠️ Ocorreu um erro no envio. Contate o administrador.")
+                    else:
+                        st.error("❌ Telefone não encontrado no banco de dados.")
 
         with aba_admin:
             st.subheader("Painel de Gestão Master")
@@ -162,7 +166,7 @@ if not st.session_state["autenticado"]:
                     
                     if st.button("Forçar Reset de Senha (Padrão: 123456)"):
                         usuarios_bd[user_to_reset]["senha"] = "123456"
-                        usuarios_bd[user_to_reset]["precisa_trocar_senha"] = True # Força a tela de troca
+                        usuarios_bd[user_to_reset]["precisa_trocar_senha"] = True 
                         salvar_usuarios(usuarios_bd)
                         st.success(f"✅ Senha do cliente {user_to_reset} resetada. Ele terá que criar uma nova ao entrar.")
                 else:
@@ -175,7 +179,7 @@ if not st.session_state["autenticado"]:
     st.stop()
 
 # ==========================================
-# TELA OBRIGATÓRIA DE TROCA DE SENHA (NOVO)
+# TELA OBRIGATÓRIA DE TROCA DE SENHA
 # ==========================================
 if st.session_state.get("exigir_troca_senha", False):
     st.title("🔐 Atualização de Senha Obrigatória")
@@ -194,7 +198,7 @@ if st.session_state.get("exigir_troca_senha", False):
                 usuarios = carregar_usuarios()
                 user = st.session_state["usuario_logado"]
                 usuarios[user]["senha"] = nova_senha_1
-                usuarios[user]["precisa_trocar_senha"] = False # Retira a trava
+                usuarios[user]["precisa_trocar_senha"] = False 
                 salvar_usuarios(usuarios)
                 
                 st.session_state["exigir_troca_senha"] = False
@@ -202,7 +206,7 @@ if st.session_state.get("exigir_troca_senha", False):
                 time.sleep(1)
                 st.rerun()
                 
-    st.stop() # Isto impede que o robô mostre os voos antes da senha ser trocada!
+    st.stop() 
 
 # ==========================================
 # DICIONÁRIOS E FUNÇÕES DE BUSCA
@@ -669,6 +673,8 @@ st.divider()
 if st.button("Buscar Pacotes & Salvar Automação", type="primary", use_container_width=True):
     if not seu_numero:
         st.warning("⚠️ Preencha o número de WhatsApp.")
+    elif not seu_numero.startswith("+"):
+        st.warning("⚠️ No painel de Alerta, digite o número de WhatsApp com o sinal de + e o DDD (ex: +5511999999999).")
     elif tipo_voo != "Multidestino" and (not origem_nome or not destino_nome or not orcamento_max):
         st.error("⚠️ Por favor, selecione a Origem, Destino e o Orçamento Máximo para buscar.")
     elif tipo_voo == "Multidestino":
