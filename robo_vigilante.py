@@ -41,31 +41,25 @@ def parse_price(val):
     try: return float(num_str)
     except: return 999999.0
 
-def obter_link_seguro(link_bruto):
-    if not link_bruto: return ""
+def obter_link_seguro(link_loja, link_produto, titulo):
+    try:
+        if link_loja:
+            qs = urllib.parse.parse_qs(urllib.parse.urlparse(link_loja).query)
+            for param in ['adurl', 'url', 'q']:
+                if param in qs and str(qs[param][0]).startswith('http'):
+                    url_ext = str(qs[param][0])
+                    if len(url_ext) < 300: 
+                        return url_ext
+    except: pass
     
-    link_limpo = str(link_bruto).replace('"', '%22').replace("'", "%27")
-    
-    if len(link_limpo) < 250:
-        return link_limpo
+    if link_loja and link_loja.startswith("http") and len(link_loja) < 300 and "ibp=oshop" not in link_loja:
+        return link_loja
         
-    try:
-        url_encode = urllib.parse.quote(link_limpo)
-        res = requests.get(f"https://tinyurl.com/api-create.php?url={url_encode}", timeout=4)
-        if res.status_code == 200 and "tinyurl.com" in res.text:
-            return res.text.strip()
-    except: pass
-    
-    try:
-        qs = urllib.parse.parse_qs(urllib.parse.urlparse(link_limpo).query)
-        for param in ['adurl', 'url', 'q']:
-            if param in qs and str(qs[param][0]).startswith('http'):
-                url_ext = str(qs[param][0])
-                if len(url_ext) < 250:
-                    return urllib.parse.quote(url_ext, safe=":/&?=#-_.")
-    except: pass
-    
-    return link_limpo[:250]
+    if link_produto and link_produto.startswith("http") and len(link_produto) < 300:
+        return link_produto
+        
+    titulo_limpo = re.sub(r'[^a-zA-Z0-9 ]', '', str(titulo))[:50].strip()
+    return f"https://www.google.com.br/search?tbm=shop&q={urllib.parse.quote(titulo_limpo)}"
 
 def buscar_hoteis_google(cidade, ida, volta, adultos, criancas, idades, quartos, orcamento_parcial):
     url = "https://serpapi.com/search.json"
@@ -150,10 +144,11 @@ def buscar_produtos_google(metodo, produto_base, marca, termos_excluir, link_pro
                 preco = parse_price(preco_bruto)
                 
                 if preco <= orcamento:
-                    titulo = item.get("title", "")
+                    titulo = item.get("title", "Produto")
                     link_bruto = item.get("link", "")
+                    link_produto_api = item.get("product_link", "")
                     
-                    link_final = obter_link_seguro(link_bruto)
+                    link_final = obter_link_seguro(link_bruto, link_produto_api, titulo)
                         
                     encontrados.append({
                         "nome": titulo,
@@ -165,6 +160,7 @@ def buscar_produtos_google(metodo, produto_base, marca, termos_excluir, link_pro
         
         elif "product_results" in res:
             nome_produto = res.get("product_results", {}).get("title", "Produto Rastreado")
+            link_matriz = res.get("product_results", {}).get("product_link", "")
             
             for seller in res.get("sellers_results", {}).get("online_sellers", []):
                 preco_bruto = seller.get("base_price")
@@ -173,7 +169,7 @@ def buscar_produtos_google(metodo, produto_base, marca, termos_excluir, link_pro
                 if preco <= orcamento:
                     link_bruto = seller.get("link", "")
                     
-                    link_final = obter_link_seguro(link_bruto)
+                    link_final = obter_link_seguro(link_bruto, link_matriz, nome_produto)
                         
                     encontrados.append({
                         "nome": nome_produto,
