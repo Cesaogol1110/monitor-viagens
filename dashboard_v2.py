@@ -21,13 +21,11 @@ TWILIO_AUTH_TOKEN = st.secrets["TWILIO_AUTH_TOKEN"]
 TWILIO_WHATSAPP_NUMBER = st.secrets["TWILIO_WHATSAPP_NUMBER"]
 SERPAPI_KEY = st.secrets["SERPAPI_KEY"]
 
-# A chave do Stripe agora é apenas um VOUCHER de ativação
 CHAVE_ATIVACAO_STRIPE = st.secrets.get("CHAVE_ACESSO_CLIENTES", "123452026") 
 
 ARQUIVO_BD = "monitoramentos.json"
-ARQUIVO_USUARIOS = "usuarios.json" # Banco de dados de clientes
+ARQUIVO_USUARIOS = "usuarios.json"
 
-# Funções de Banco de Dados de Usuários
 def carregar_usuarios():
     if os.path.exists(ARQUIVO_USUARIOS):
         with open(ARQUIVO_USUARIOS, "r", encoding="utf-8") as f:
@@ -52,7 +50,6 @@ if not st.session_state["autenticado"]:
     with st.container(border=True):
         aba_login, aba_cadastro = st.tabs(["🔐 Fazer Login", "🆕 Primeiro Acesso (Ativar Conta)"])
         
-        # ABA 1: LOGIN PARA CLIENTES EXISTENTES
         with aba_login:
             st.subheader("Já tenho uma conta")
             tel_login = st.text_input("Seu Telefone (Login):", placeholder="Ex: 11999999999", key="login_tel")
@@ -67,7 +64,6 @@ if not st.session_state["autenticado"]:
                 else:
                     st.error("❌ Telefone ou senha incorretos.")
                     
-        # ABA 2: CADASTRO COM O VOUCHER DO STRIPE
         with aba_cadastro:
             st.subheader("Ativar minha assinatura")
             st.write("Insira o código recebido após o pagamento para criar seu login.")
@@ -99,12 +95,11 @@ if not st.session_state["autenticado"]:
     st.info("💡 **Ainda não tem acesso?** Adquira a sua licença mensal para desbloquear buscas ilimitadas.")
     st.markdown("### [🛒 **Clique aqui para Assinar e Liberar seu Acesso**](https://buy.stripe.com/test_4gM28r8YbgXQ0et0sZaAw00)") 
     
-    st.stop() # Bloqueia o app aqui se não logar!
+    st.stop()
 
 # ==========================================
-# O RESTANTE DO CÓDIGO (COM NOVOS AEROPORTOS)
+# DICIONÁRIOS E FUNÇÕES DE BUSCA
 # ==========================================
-
 AEROPORTOS = {
     "São Paulo (GRU) - Guarulhos": "GRU",
     "São Paulo (CGH) - Congonhas": "CGH",
@@ -150,8 +145,7 @@ LOGOS_CIAS = {
 
 def obter_logo_cia(nome_cia):
     for chave, url_logo in LOGOS_CIAS.items():
-        if chave.lower() in nome_cia.lower():
-            return url_logo
+        if chave.lower() in nome_cia.lower(): return url_logo
     return "https://cdn-icons-png.flaticon.com/512/3125/3125713.png"
 
 def carregar_bd():
@@ -192,9 +186,7 @@ def buscar_hoteis_google(cidade_hotel, bairros, data_ida_str, data_volta_str, ad
     palavra_chave_real = palavra_chave.strip()
     bairros_real = bairros.strip()
     cidade_limpa = cidade_hotel.split("(")[0].strip()
-    
-    if bairros_real: local_busca = f"{bairros_real}, {cidade_limpa}"
-    else: local_busca = cidade_limpa
+    local_busca = f"{bairros_real}, {cidade_limpa}" if bairros_real else cidade_limpa
         
     pedacos_busca = []
     if palavra_chave_real: pedacos_busca.append(palavra_chave_real)
@@ -237,12 +229,7 @@ def buscar_hoteis_google(cidade_hotel, bairros, data_ida_str, data_volta_str, ad
         if bairros_real:
             bairros_permitidos = [b.strip().lower() for b in bairros_real.split(",")]
             texto_para_validar = f"{bairro_oficial} {nome}".lower()
-            passou_cerca = False
-            for bp in bairros_permitidos:
-                if bp in texto_para_validar:
-                    passou_cerca = True
-                    break
-            if not passou_cerca: continue 
+            if not any(bp in texto_para_validar for bp in bairros_permitidos): continue
 
         classe_str = str(h.get("hotel_class", "0"))
         estrelas = int(''.join(filter(str.isdigit, classe_str))) if any(c.isdigit() for c in classe_str) else 0
@@ -276,8 +263,7 @@ def buscar_pacotes_completos(tipo_voo, origem, destino, incluir_hospedagem, cida
         if len(lista_hoteis) > 0 and "erro" in lista_hoteis[0]: return {"status": "erro", "mensagem": lista_hoteis[0]["mensagem"]}
 
     url = "https://serpapi.com/search.json"
-    total_passageiros = adultos + criancas
-    params = {"engine": "google_flights", "departure_id": origem, "arrival_id": destino, "outbound_date": data_ida_str, "currency": "BRL", "hl": "pt-br", "gl": "br", "api_key": SERPAPI_KEY, "adults": total_passageiros}
+    params = {"engine": "google_flights", "departure_id": origem, "arrival_id": destino, "outbound_date": data_ida_str, "currency": "BRL", "hl": "pt-br", "gl": "br", "api_key": SERPAPI_KEY, "adults": (adultos + criancas)}
     
     if tipo_voo == "Somente Ida": params["type"] = "2"
     else:
@@ -369,14 +355,54 @@ def buscar_pacotes_completos(tipo_voo, origem, destino, incluir_hospedagem, cida
     except Exception as e: return {"status": "erro", "mensagem": f"Falha na comunicação: {str(e)}"}
 
 # ==========================================
-# MOTOR DE FUNDO (BACKGROUND THREAD)
+# MOTOR DE FUNDO (ATUALIZADO COM O AJUSTE DE HORA)
 # ==========================================
+def processar_disparo(cod, info, hoje):
+    res = buscar_pacotes_completos(
+        info["tipo_voo"], info["origem"], info["destino"], info.get("incluir_hospedagem", True),
+        info.get("cidade_hotel", info["destino"]), info.get("bairros_hotel", ""), 
+        info["data_ida"], info["data_volta"], info["adultos"], info["criancas"], info.get("idades_criancas", []), info.get("quartos", 1), info["max_duracao"], info["max_escalas"], 
+        info["orcamento_max"], info.get("min_estrelas", 3), info.get("min_nota", 4.0), info.get("palavra_chave", ""), info.get("filtro_cia", ""),
+        info.get("filtro_horario_ida", "Qualquer horário"), info.get("filtro_horario_volta", "Qualquer horário")
+    )
+    if res["status"] == "sucesso" and len(res["pacotes"]) > 0:
+        pacotes_unicos = []
+        if info.get("incluir_hospedagem", True):
+            hoteis_vistos = set()
+            for pct in res["pacotes"]:
+                if pct['hotel']['nome'] not in hoteis_vistos:
+                    pacotes_unicos.append(pct)
+                    hoteis_vistos.add(pct['hotel']['nome'])
+        else:
+            voos_vistos = set()
+            for pct in res["pacotes"]:
+                id_voo = f"{pct['voo']['cia_ida']}-{pct['voo']['saida_ida']}"
+                if id_voo not in voos_vistos:
+                    pacotes_unicos.append(pct)
+                    voos_vistos.add(id_voo)
+        
+        titulo_wpp = "Voo+Hotel" if info.get("incluir_hospedagem", True) else "Apenas Voos"
+        msg_diaria = f"⏰ *ATUALIZAÇÃO DIÁRIA*\nCódigo: {cod}\n\nEncontramos {len(pacotes_unicos)} opções ({titulo_wpp}) hoje:\n\n"
+        for i, pct in enumerate(pacotes_unicos[:2], 1):
+            msg_diaria += f"🏆 *OPÇÃO {i}: {pct['custo_formatado']}*\n"
+            if info.get("incluir_hospedagem", True):
+                msg_diaria += f"🏨 {pct['hotel']['nome']} (Nota: {pct['hotel']['nota']})\n"
+            msg_diaria += f"✈️ Voo: {pct['voo']['cia_ida']} ({pct['voo']['preco_formatado']})\n"
+            msg_diaria += "-----------------------\n"
+        
+        msg_diaria += f"🛑 *Para cancelar os avisos automáticos, acesse o painel.*"
+        testar_alerta_whatsapp(info["telefone"], msg_diaria)
+        info["ultimo_disparo"] = hoje
+        return True
+    return False
+
 def loop_vigilante():
     while True:
         try:
             bd = carregar_bd()
-            agora = datetime.datetime.now().strftime("%H:%M")
-            hoje = datetime.datetime.now().strftime("%Y-%m-%d")
+            fuso_br = datetime.timezone(datetime.timedelta(hours=-3))
+            agora = datetime.datetime.now(fuso_br).strftime("%H:%M")
+            hoje = datetime.datetime.now(fuso_br).strftime("%Y-%m-%d")
             houve_mudanca = False
             
             for cod, info in bd.items():
@@ -384,50 +410,12 @@ def loop_vigilante():
                     horario_alvo = info.get("horario", "18:00")
                     ultimo_disparo = info.get("ultimo_disparo", "")
                     
-                    if agora == horario_alvo and ultimo_disparo != hoje:
-                        res = buscar_pacotes_completos(
-                            info["tipo_voo"], info["origem"], info["destino"], info.get("incluir_hospedagem", True),
-                            info.get("cidade_hotel", info["destino"]), info.get("bairros_hotel", ""), 
-                            info["data_ida"], info["data_volta"], info["adultos"], info["criancas"], info.get("idades_criancas", []), info.get("quartos", 1), info["max_duracao"], info["max_escalas"], 
-                            info["orcamento_max"], info.get("min_estrelas", 3), info.get("min_nota", 4.0), info.get("palavra_chave", ""), info.get("filtro_cia", ""),
-                            info.get("filtro_horario_ida", "Qualquer horário"), info.get("filtro_horario_volta", "Qualquer horário")
-                        )
-                        
-                        if res["status"] == "sucesso" and len(res["pacotes"]) > 0:
-                            pacotes_unicos = []
-                            if info.get("incluir_hospedagem", True):
-                                hoteis_vistos = set()
-                                for pct in res["pacotes"]:
-                                    if pct['hotel']['nome'] not in hoteis_vistos:
-                                        pacotes_unicos.append(pct)
-                                        hoteis_vistos.add(pct['hotel']['nome'])
-                            else:
-                                voos_vistos = set()
-                                for pct in res["pacotes"]:
-                                    id_voo = f"{pct['voo']['cia_ida']}-{pct['voo']['saida_ida']}"
-                                    if id_voo not in voos_vistos:
-                                        pacotes_unicos.append(pct)
-                                        voos_vistos.add(id_voo)
-                            
-                            titulo_wpp = "Voo+Hotel" if info.get("incluir_hospedagem", True) else "Apenas Voos"
-                            msg_diaria = f"⏰ *ATUALIZAÇÃO DIÁRIA ({horario_alvo})*\nCódigo: {cod}\n\nEncontramos {len(pacotes_unicos)} opções ({titulo_wpp}) hoje:\n\n"
-                            
-                            for i, pct in enumerate(pacotes_unicos[:2], 1):
-                                msg_diaria += f"🏆 *OPÇÃO {i}: {pct['custo_formatado']}*\n"
-                                if info.get("incluir_hospedagem", True):
-                                    msg_diaria += f"🏨 {pct['hotel']['nome']} (Nota: {pct['hotel']['nota']})\n"
-                                    msg_diaria += f"🔗 Hotel: {pct['hotel']['link']}\n"
-                                msg_diaria += f"✈️ Voo: {pct['voo']['cia_ida']} ({pct['voo']['preco_formatado']})\n"
-                                msg_diaria += f"🔗 Voo: {pct['voo']['link']}\n"
-                                msg_diaria += "-----------------------\n"
-                            
-                            msg_diaria += f"🛑 *Para cancelar os avisos automáticos, acesse o painel e clique em Cancelar.*"
-                            testar_alerta_whatsapp(info["telefone"], msg_diaria)
-                        
-                        info["ultimo_disparo"] = hoje
-                        houve_mudanca = True
+                    # AJUSTE CHAVE: A hora de agora deve ser igual ou maior que a hora alvo
+                    if agora >= horario_alvo and ultimo_disparo != hoje:
+                        if processar_disparo(cod, info, hoje):
+                            houve_mudanca = True
             if houve_mudanca: salvar_bd(bd)
-        except Exception as e: pass
+        except Exception: pass
         time.sleep(30)
 
 @st.cache_resource
@@ -443,7 +431,6 @@ iniciar_motor_fundo()
 # ==========================================
 st.sidebar.title("🤖 Painel do Robô")
 
-# Botão de Logout na Barra Lateral
 st.sidebar.write(f"👤 Usuário: **{st.session_state['usuario_logado']}**")
 if st.sidebar.button("🚪 Sair (Logout)", use_container_width=True):
     st.session_state["autenticado"] = False
@@ -459,10 +446,23 @@ with st.sidebar.expander("📂 Consultar Orçamentos Salvos"):
             status_monitoramento = "✅ ATIVO" if info.get("monitorar") else "⏸️ Pausado"
             st.markdown(f"**Código:** `{codigo}`")
             st.write(f"Status: {status_monitoramento}")
+            
+            # NOVO: BOTÃO PARA FORÇAR O DISPARO E TESTAR NA HORA
+            if info.get("monitorar"):
+                if st.button(f"⚡ Testar Disparo Agora", key=f"testar_{codigo}"):
+                    fuso_br = datetime.timezone(datetime.timedelta(hours=-3))
+                    hoje = datetime.datetime.now(fuso_br).strftime("%Y-%m-%d")
+                    with st.spinner("Forçando disparo do WhatsApp..."):
+                        sucesso = processar_disparo(codigo, info, hoje)
+                        if sucesso:
+                            salvar_bd(bd_atual)
+                            st.success("Mensagem enviada com sucesso para o seu celular!")
+                        else:
+                            st.error("Erro ao simular disparo ou nenhuma opção encontrada.")
             st.divider()
 
 with st.sidebar.expander("📲 Ativar Monitoramento Automático"):
-    st.write("Insira o código do seu pacote abaixo para receber as variações de preço todos os dias!")
+    st.write("Insira o código do pacote abaixo para ligar ou desligar os avisos.")
     codigo_simulacao = st.text_input("Código do Orçamento (ex: A1B2C3)")
     resposta_simulacao = st.selectbox("Ação", ["ATIVAR Monitoramento", "CANCELAR Monitoramento"])
     if st.button("Aplicar Ação", use_container_width=True):
@@ -471,19 +471,18 @@ with st.sidebar.expander("📲 Ativar Monitoramento Automático"):
             if resposta_simulacao == "ATIVAR Monitoramento":
                 bd_atual[codigo_limpo]["monitorar"] = True
                 salvar_bd(bd_atual)
-                st.sidebar.success(f"✅ Monitoramento {codigo_limpo} ATIVADO! Avisaremos no WhatsApp cadastrado.")
+                st.sidebar.success(f"✅ Monitoramento {codigo_limpo} ATIVADO!")
             else:
                 bd_atual[codigo_limpo]["monitorar"] = False
                 salvar_bd(bd_atual)
                 st.sidebar.warning(f"🛑 Monitoramento {codigo_limpo} CANCELADO!")
         else:
-            st.sidebar.error("Código não encontrado no banco de dados.")
+            st.sidebar.error("Código não encontrado.")
 
 st.title("✈️ Monitor de Viagens Avançado")
 
 with st.expander("⚙️ CONFIGURAR PREMISSAS DA VIAGEM", expanded=True):
     tipo_voo = st.radio("Tipo de viagem:", ["Ida e Volta", "Somente Ida", "Multidestino"], horizontal=True)
-    
     incluir_hospedagem = st.checkbox("🏨 Adicionar Hospedagem à Busca", value=(tipo_voo != "Multidestino"), disabled=(tipo_voo == "Multidestino"))
     st.divider()
 
@@ -587,9 +586,9 @@ if st.button("Buscar Pacotes & Salvar Automação", type="primary", use_containe
     elif tipo_voo != "Multidestino" and (not origem_nome or not destino_nome or not orcamento_max):
         st.error("⚠️ Por favor, selecione a Origem, Destino e o Orçamento Máximo para buscar.")
     elif tipo_voo == "Multidestino":
-        st.info("A funcionalidade Voo+Hotel para Multidestinos entrará em breve. No momento, concentre-se nas abas 'Ida e Volta' ou 'Somente Ida'.")
+        st.info("A funcionalidade Voo+Hotel para Multidestinos entrará em breve.")
     else:
-        aviso_spinner = "Pescando resultados ocultos em múltiplas páginas do Google e cruzando com os voos..." if incluir_hospedagem else "Analisando malhas aéreas e tarifas disponíveis..."
+        aviso_spinner = "Pescando resultados ocultos em múltiplas páginas do Google e cruzando com os voos..." if incluir_hospedagem else "Analisando malhas aéreas..."
         with st.spinner(aviso_spinner):
             
             data_ida_str = data_ida.strftime("%Y-%m-%d")
@@ -632,76 +631,42 @@ if st.button("Buscar Pacotes & Salvar Automação", type="primary", use_containe
                             pacotes_unicos.append(pct)
                             voos_vistos.add(id_voo)
                 
-                texto_sucesso = f"🎉 Exibindo TODAS as {len(pacotes_unicos)} opções únicas do menor para o maior preço! CÓDIGO: {codigo_orcamento}"
+                texto_sucesso = f"🎉 CÓDIGO DO PACOTE: {codigo_orcamento}"
                 st.success(texto_sucesso)
-                st.info("💡 **Dica do Robô:** O valor dos voos abaixo já reflete o total para todos os passageiros selecionados!")
                 
-                titulo_wpp = "Voo+Hotel" if incluir_hospedagem else "Apenas Voos"
-                msg_automatica = f"🚨 *PACOTES ENCONTRADOS ({titulo_wpp})* 🚨\n\nEncontramos {len(pacotes_unicos)} opções no total! Aqui estão as 2 melhores:\n\n"
-                
+                msg_automatica = f"🚨 *PACOTES ENCONTRADOS* 🚨\n\nEncontramos opções hoje:\n\n"
                 for i, pct in enumerate(pacotes_unicos[:2], 1):
                     msg_automatica += f"🏆 *OPÇÃO {i}: {pct['custo_formatado']}*\n"
                     if incluir_hospedagem:
-                        msg_automatica += f"🏨 {pct['hotel']['nome']} ({pct['hotel']['estrelas']}⭐ - Nota: {pct['hotel']['nota']})\n"
-                        msg_automatica += f"🔗 Hotel: {pct['hotel']['link']}\n"
-                    msg_automatica += f"✈️ Voo: {pct['voo']['cia_ida']} ({pct['voo']['preco_formatado']})\n"
-                    msg_automatica += f"🔗 Voo: {pct['voo']['link']}\n"
+                        msg_automatica += f"🏨 {pct['hotel']['nome']}\n"
+                    msg_automatica += f"✈️ Voo: {pct['voo']['cia_ida']}\n"
                     msg_automatica += "-----------------------\n"
                 
-                msg_automatica += f"\n🤖 *MONITORAMENTO DIÁRIO ({hora_str})*\nPara ligar os alertas deste pacote, use o menu lateral do site e digite o código: *{codigo_orcamento}*"
+                msg_automatica += f"\n🤖 *MONITORAMENTO ({hora_str})*\nAtive os alertas no painel com o código: *{codigo_orcamento}*"
                 
                 sucesso_wa, retorno_wa = testar_alerta_whatsapp(seu_numero, msg_automatica)
                 if not sucesso_wa:
-                    if "1600" in str(retorno_wa):
-                        st.error("⚠️ **O pacote foi montado, mas o WhatsApp bloqueou a mensagem por ser longa demais!** A operadora cortou os links gigantes do Google.")
-                    else:
-                        st.error(f"⚠️ **Falha na operadora Twilio:** `{retorno_wa}`\n\n**Solução:** Envie o comando de ativação para o número `+1 415 523 8886`.")
+                    st.error(f"⚠️ **Falha na operadora Twilio:** `{retorno_wa}`")
                 else:
-                    st.success(f"✅ As opções foram disparadas com sucesso para o WhatsApp {seu_numero}!")
+                    st.success(f"✅ As opções foram disparadas para o WhatsApp {seu_numero}!")
 
                 for pct in pacotes_unicos: 
                     with st.container(border=True):
                         if incluir_hospedagem:
                             st.markdown(f"### 🏨 {pct['hotel']['nome']} + ✈️ Voos ({pct['custo_formatado']})")
                             colA, colB = st.columns(2)
-                            
                             with colA:
-                                st.markdown(f"#### 🏨 Hospedagem")
-                                st.write(f"**💰 Estadia Total:** {pct['hotel']['preco_formatado']}")
-                                st.write(f"📍 Região: {pct['hotel']['bairro']}")
-                                st.write(f"⭐ Classificação: {pct['hotel']['estrelas']} | 🏆 Nota: {pct['hotel']['nota']}/5.0")
+                                st.write(f"**💰 Estadia:** {pct['hotel']['preco_formatado']}")
                                 st.markdown(f"[🔗 **Ir Direto para o Hotel**]({pct['hotel']['link']})")
-                                
                             with colB:
-                                st.markdown(f"""
-                                    <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px;">
-                                        <img src="{pct['voo']['logo']}" width="40" style="border-radius: 4px;">
-                                        <h4 style="margin: 0;">✈️ Voos ({pct['voo']['cia_ida']})</h4>
-                                    </div>
-                                """, unsafe_allow_html=True)
-                                st.write(f"**💰 Passagens Totais:** {pct['voo']['preco_formatado']} *(Pode estar mais barato no site!)*")
+                                st.markdown(f"""<div style="display: flex; align-items: center; gap: 10px;"><img src="{pct['voo']['logo']}" width="40"><h4 style="margin: 0;">{pct['voo']['cia_ida']}</h4></div>""", unsafe_allow_html=True)
+                                st.write(f"**💰 Passagens:** {pct['voo']['preco_formatado']}")
                                 st.write(f"🛫 IDA: {pct['voo']['saida_ida']} - {pct['voo']['chegada_ida']}")
-                                if tipo_voo == "Ida e Volta":
-                                    if pct['voo']['cia_volta'] == "Escolher no site":
-                                        st.write("🛬 VOLTA: *Horário a escolher no site (Preço já incluso)*")
-                                    else:
-                                        st.write(f"🛬 VOLTA: {pct['voo']['cia_volta']} | {pct['voo']['saida_volta']} - {pct['voo']['chegada_volta']}")
                                 st.markdown(f"[🔗 **Ver Passagens no Google**]({pct['voo']['link']})")
                         else:
-                            st.markdown(f"""
-                                <div style="display: flex; align-items: center; gap: 15px; margin-bottom: 10px;">
-                                    <img src="{pct['voo']['logo']}" width="50" style="border-radius: 5px;">
-                                    <h3 style="margin: 0;">✈️ Passagens Aéreas ({pct['custo_formatado']})</h3>
-                                </div>
-                            """, unsafe_allow_html=True)
+                            st.markdown(f"""<div style="display: flex; align-items: center; gap: 15px;"><img src="{pct['voo']['logo']}" width="50"><h3 style="margin: 0;">✈️ Passagens ({pct['custo_formatado']})</h3></div>""", unsafe_allow_html=True)
                             st.write(f"**Cia Aérea:** {pct['voo']['cia_ida']}")
-                            st.write(f"🛫 IDA: {pct['voo']['saida_ida']} - {pct['voo']['chegada_ida']} (Escalas: {pct['voo']['escalas_ida']})")
-                            if tipo_voo == "Ida e Volta":
-                                if pct['voo']['cia_volta'] == "Escolher no site":
-                                    st.write("🛬 VOLTA: *Horário a escolher no site (Preço já incluso)*")
-                                else:
-                                    st.write(f"🛬 VOLTA: {pct['voo']['cia_volta']} | {pct['voo']['saida_volta']} - {pct['voo']['chegada_volta']} (Escalas: {pct['voo']['escalas_volta']})")
+                            st.write(f"🛫 IDA: {pct['voo']['saida_ida']} - {pct['voo']['chegada_ida']}")
                             st.markdown(f"[🔗 **Ver Passagens no Google**]({pct['voo']['link']})")
             else:
-                st.warning("⚠️ Aviso do Robô:")
-                st.markdown(resultado['mensagem'])
+                st.error(resultado['mensagem'])
