@@ -1,4 +1,4 @@
-# código final 26/02/2026 - VERSÃO INTEGRAL COM RELATÓRIO DE HISTÓRICO
+# código final 26/02/2026 - VERSÃO INTEGRAL COM CARTÕES DE ORÇAMENTO E HISTÓRICO
 # dashboard_v2.py
 import streamlit as st
 import datetime
@@ -9,7 +9,7 @@ import os
 import time
 import urllib.parse
 import random
-import pandas as pd # NOVO: Necessário para gerar os gráficos
+import pandas as pd
 from twilio.rest import Client
 
 st.set_page_config(page_title="Monitor de Viagens", layout="wide")
@@ -154,7 +154,7 @@ if not st.session_state["autenticado"]:
     st.stop()
 
 # ==========================================
-# INTERFACE PRINCIPAL
+# INTERFACE PRINCIPAL E BARRA LATERAL
 # ==========================================
 AEROPORTOS = {
     "São Paulo (GRU) - Guarulhos": "GRU", "São Paulo (CGH) - Congonhas": "CGH",
@@ -168,22 +168,36 @@ st.sidebar.write(f"👤 Usuário: **{st.session_state['usuario_logado']}**")
 
 bd_atual = carregar_bd()
 
-with st.sidebar.expander("📂 Consultar Orçamentos Salvos"):
-    encontrou = False
+# --- NOVIDADE: CARTÕES DE ORÇAMENTO COM PREMISSAS NA BARRA LATERAL ---
+with st.sidebar.expander("📂 Consultar Orçamentos Salvos", expanded=True):
+    encontrou_algum = False
     for c, info in bd_atual.items():
         if info.get("telefone") == st.session_state["usuario_logado"]:
-            st.write(f"Cód: `{c}` | {'✅ Ativo' if info['monitorar'] else '⏸️ Pausado'}")
-            encontrou = True
-    if not encontrou: st.info("Nenhum salvo.")
+            encontrou_algum = True
+            status_str = "✅ Ativo" if info.get("monitorar") else "⏸️ Pausado"
+            
+            # Formatação limpa dentro de um cartão
+            with st.container(border=True):
+                st.markdown(f"**Cód: {c}** | {status_str}")
+                st.caption(f"👤 **Req:** {info.get('telefone')}")
+                st.caption(f"🛫 **Rota:** {info.get('origem', 'N/A')} ➡️ {info.get('destino', 'N/A')}")
+                if info.get('data_volta'):
+                    st.caption(f"📅 **Datas:** {info.get('data_ida')} até {info.get('data_volta')}")
+                else:
+                    st.caption(f"📅 **Data:** {info.get('data_ida')} (Somente Ida)")
+                st.caption(f"💰 **Teto:** R$ {info.get('orcamento_max', 0):,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+    
+    if not encontrou_algum:
+        st.info("Nenhum orçamento salvo.")
 
-with st.sidebar.expander("📲 Ativar Monitoramento"):
+with st.sidebar.expander("📲 Ativar/Pausar Monitoramento"):
     cod_m = st.text_input("Código do Orçamento")
     acao_m = st.selectbox("Ação", ["ATIVAR Monitoramento", "CANCELAR Monitoramento"])
     if st.button("Aplicar Ação"):
         if cod_m in bd_atual:
             bd_atual[cod_m]["monitorar"] = (acao_m == "ATIVAR Monitoramento")
             salvar_bd(bd_atual)
-            st.sidebar.success("Atualizado!")
+            st.sidebar.success("Atualizado com sucesso!")
 
 st.title("✈️ Monitor de Viagens Avançado")
 
@@ -243,10 +257,10 @@ with aba_nova_busca:
             cod = str(uuid.uuid4())[:6].upper()
             hoje_str = datetime.datetime.now().strftime("%Y-%m-%d")
             
-            # CRIANDO O HISTÓRICO INICIAL
+            # Histórico inicial
             historico_precos = {}
             if resultados:
-                historico_precos[hoje_str] = resultados[0]['total'] # Salva o menor preço de hoje
+                historico_precos[hoje_str] = resultados[0]['total']
             
             bd_atual[cod] = {
                 "monitorar": True, "telefone": tel_alerta, "horario": hora_a.strftime("%H:%M"),
@@ -254,7 +268,7 @@ with aba_nova_busca:
                 "data_ida": ida_s, "data_volta": vlt_s, "adultos": adt, "criancas": cri, 
                 "ultimo_disparo": hoje_str if resultados else "", 
                 "incluir_hospedagem": incluir_hospedagem,
-                "historico": historico_precos # <--- A MEMÓRIA DO GRÁFICO
+                "historico": historico_precos
             }
             salvar_bd(bd_atual)
             
@@ -271,7 +285,6 @@ with aba_historico:
     st.subheader("📉 Análise de Tendência de Preços")
     st.write("Acompanhe a evolução do menor preço encontrado para saber o momento exato de comprar.")
     
-    # Filtra apenas os códigos do usuário logado
     codigos_usuario = {c: info for c, info in bd_atual.items() if info.get("telefone") == st.session_state["usuario_logado"]}
     
     if not codigos_usuario:
@@ -287,14 +300,11 @@ with aba_historico:
         if not historico_dados:
             st.warning("O robô ainda não coletou dados de preço suficientes para este código. Tente amanhã!")
         else:
-            # Converte o dicionário de histórico em um DataFrame para o gráfico
             df_historico = pd.DataFrame(list(historico_dados.items()), columns=['Data da Busca', 'Menor Preço (R$)'])
             df_historico['Data da Busca'] = pd.to_datetime(df_historico['Data da Busca'])
             df_historico['Dia da Semana'] = df_historico['Data da Busca'].dt.day_name()
             
-            # Mostra o gráfico de linha
             st.line_chart(df_historico.set_index('Data da Busca')['Menor Preço (R$)'])
             
-            # Mostra a tabela detalhada com o dia da semana
             with st.expander("Ver Tabela Detalhada"):
                 st.dataframe(df_historico, use_container_width=True)
