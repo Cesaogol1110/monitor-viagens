@@ -1,4 +1,4 @@
-# código final 26/02/2026
+# código final 20/01/2026
 # dashboard_v2.py
 import streamlit as st
 import datetime
@@ -63,31 +63,21 @@ def parse_price(val):
     try: return float(num_str)
     except: return 999999.0
 
-def obter_link_seguro(item):
-    """Extrai a URL decodificada da loja do rastreamento do Google, ou usa o product_link nativo."""
-    link_bruto = item.get("link", "")
-    
-    # 1. Tenta decodificar a URL real se o Google a enviou encapsulada
+def ottenere_link_sicuro(link_bruto, titulo, loja):
     try:
-        if link_bruto and ("url?url=" in link_bruto or "url?q=" in link_bruto):
-            parsed = urllib.parse.urlparse(link_bruto)
-            qs = urllib.parse.parse_qs(parsed.query)
-            for param in ['url', 'q', 'adurl']:
-                if param in qs and str(qs[param][0]).startswith('http'):
-                    url_extraida = str(qs[param][0])
-                    # Verifica se o limite de caracteres é seguro para o WhatsApp
-                    if len(url_extraida) < 600:
-                        return url_extraida
+        if link_bruto:
+            qs = urllib.parse.parse_qs(urllib.parse.urlparse(link_bruto).query)
+            for param in ['adurl', 'url', 'q']:
+                if param in qs and str(qs[param][0]).startswith('http') and "google.com" not in qs[param][0]:
+                    if len(qs[param][0]) < 400: 
+                        return str(qs[param][0])
     except: pass
+    
+    if link_bruto and "google.com" not in link_bruto and link_bruto.startswith("http") and len(link_bruto) < 300:
+        return link_bruto
 
-    # 2. Se o link for um modal de celular que quebra no desktop, pega a vitrine nativa da SerpApi
-    if "ibp=oshop" in link_bruto:
-        link_produto = item.get("product_link", "")
-        if link_produto and link_produto.startswith("http"):
-            return link_produto
-
-    # 3. Retorna o link que a API enviou
-    return link_bruto
+    termo = f"{loja} {titulo}"[:80] 
+    return f"https://www.google.com.br/search?q={urllib.parse.quote(termo)}"
 
 # ==========================================
 # MOTORES DE BUSCA: VIAGENS
@@ -150,7 +140,7 @@ def buscar_pacotes_completos(origem, destino, ida, volta, adt, cri, idades, orc_
 # ==========================================
 def buscar_produtos_google(metodo, produto_base, marca, termos_excluir, link_produto, orcamento):
     try:
-        params = {"hl": "pt-br", "gl": "br", "google_domain": "google.com.br", "currency": "BRL", "api_key": SERPAPI_KEY}
+        params = {"hl": "pt-br", "gl": "br", "google_domain": "google.com.br", "currency": "BRL", "device": "desktop", "api_key": SERPAPI_KEY}
         
         if "Filtros" in metodo: 
             query = f"{produto_base}"
@@ -184,12 +174,15 @@ def buscar_produtos_google(metodo, produto_base, marca, termos_excluir, link_pro
                 
                 if preco <= orcamento:
                     titulo = item.get("title", "")
-                    link_final = obter_link_seguro(item)
+                    link_bruto = item.get("link", "")
+                    loja = item.get("source", "Loja")
+                    
+                    link_final = ottenere_link_sicuro(link_bruto, titulo, loja)
                         
                     encontrados.append({
                         "nome": titulo,
                         "total": preco, 
-                        "loja": item.get("source", "Loja não informada"),
+                        "loja": loja,
                         "link": link_final
                     })
                     if len(encontrados) >= 5: break
@@ -202,12 +195,15 @@ def buscar_produtos_google(metodo, produto_base, marca, termos_excluir, link_pro
                 preco = parse_price(preco_bruto)
                 
                 if preco <= orcamento:
-                    link_final = obter_link_seguro(seller)
+                    link_bruto = seller.get("link", "")
+                    loja = seller.get("name", "Loja")
+                    
+                    link_final = ottenere_link_sicuro(link_bruto, nome_produto, loja)
                         
                     encontrados.append({
                         "nome": nome_produto,
                         "total": preco,
-                        "loja": seller.get("name", "Loja não informada"),
+                        "loja": loja,
                         "link": link_final
                     })
                     if len(encontrados) >= 5: break
@@ -233,7 +229,7 @@ def enviar_alerta_whatsapp_painel(numero, itens, codigo, tipo_monitoramento="via
         else:
             msg = f"📦 *{len(itens)} OFERTAS DE PRODUTO!* (Cód: {codigo})\n\n"
             for i, p in enumerate(itens, 1):
-                msg += f"{i}️⃣ *R$ {p['total']:,.2f}* na loja {p['loja']}\n🛒 {p['nome'][:45]}...\n🔗 Link da Loja: {p['link']}\n\n"
+                msg += f"{i}️⃣ *R$ {p['total']:,.2f}* na loja {p['loja']}\n🛒 {p['nome'][:45]}...\n🔗 Link: {p['link']}\n\n"
                 
         msg += "O sistema continuará monitorando na frequência escolhida!"
         
@@ -303,7 +299,7 @@ if not st.session_state["autenticado"]:
                             usuarios_bd[user_to_reset]["senha"] = "123456"
                             usuarios_bd[user_to_reset]["precisa_trocar_senha"] = True 
                             salvar_usuarios(usuarios_bd)
-                            st.success(f"✅ Senha do utilizador {user_to_reset} resetada.")
+                            st.success(f"✅ Senha del utilizador {user_to_reset} resetada.")
                     with col_adm2:
                         if st.button("🗑️ Excluir Usuário", use_container_width=True):
                             del usuarios_bd[user_to_reset]
@@ -317,7 +313,7 @@ if not st.session_state["autenticado"]:
                             st.success(f"✅ Usuário {user_to_reset} e orçamentos excluídos!")
                             time.sleep(1.5)
                             st.rerun()
-                else: st.info("Nenhum utilizador registado.")
+                else: st.info("Nessun utilizador registrato.")
     st.stop()
 
 # ==========================================
@@ -436,7 +432,7 @@ with aba_nova_busca:
             prod_excluir = st.text_input("Palavras a Excluir (separadas por vírgula)", placeholder="Ex: capa, película, acessório, usado")
             link_produto = ""
         else:
-            st.info("💡 Encontre o produto no Google Shopping, copie o link e cole abaixo para rastrear a tabela de preços do item exato.")
+            st.info("💡 Encontre il prodotto su Google Shopping, copia il link e incollalo qui sotto per tracciare il prezzo esatto dell'articolo.")
             link_produto = st.text_input("Cole o Link do Google Shopping aqui:")
             prod_base = "Produto por Link"
             prod_marca = ""
@@ -502,21 +498,22 @@ with aba_nova_busca:
                     st.error(f"⚠️ Salvo, mas o Twilio bloqueou: {erro_wa}")
                 
                 st.subheader("🔎 Opções Encontradas Agora:")
+                # SOSTITUZIONE CRITICA: HTML PURO INVECE DI MARKDOWN
                 for r in resultados:
                     with st.container(border=True):
                         if tipo_monitoramento == "✈️ Viagens (Voo + Hotel)":
                             st.write(f"💰 **R$ {r['total']:,.2f}**")
                             st.write(f"✈️ Voo: {r['voo']} | 🏨 Hotel: {r['hotel']}")
                             if r.get('link_h'):
-                                st.markdown(f"[🔗 Ver Voo]({r['link_v']}) | [🔗 Ver Hotel]({r['link_h']})")
+                                st.markdown(f'<a href="{r["link_v"]}" target="_blank" style="font-weight:bold;">🔗 Ver Voo</a> | <a href="{r["link_h"]}" target="_blank" style="font-weight:bold;">🔗 Ver Hotel</a>', unsafe_allow_html=True)
                             else:
-                                st.markdown(f"[🔗 Ver Voo]({r['link_v']})")
+                                st.markdown(f'<a href="{r["link_v"]}" target="_blank" style="font-weight:bold;">🔗 Ver Voo</a>', unsafe_allow_html=True)
                         else:
                             st.write(f"💰 **R$ {r['total']:,.2f}** | 🏬 Loja: {r['loja']}")
                             st.write(f"📦 {r['nome']}")
-                            st.markdown(f"[🔗 Acessar Oferta Direta]({r['link']})")
+                            st.markdown(f'<a href="{r["link"]}" target="_blank" style="font-weight:bold;">🔗 Acessar Oferta Direta</a>', unsafe_allow_html=True)
             else: 
-                st.warning(f"🔔 ORÇAMENTO SALVO! O robô ficará vigiando, mas não enviou alerta agora porque não encontrou nenhuma opção no teto de R$ {orc_max}.")
+                st.warning(f"🔔 ORÇAMENTO SALVO! O robô ficará vigiando, mas non ha inviato un avviso ora perché non ha trovato alcuna opzione entro il limite di R$ {orc_max}.")
 
 with aba_historico:
     st.subheader("📉 Análise de Tendência de Preços")
