@@ -1,4 +1,4 @@
-# código final 26/02/2026 - EXTRATOR DE LINKS HÍBRIDO E ROBUSTO
+# código final 20/01/2026
 # dashboard_v2.py
 import streamlit as st
 import datetime
@@ -47,7 +47,7 @@ def salvar_bd(dados):
     requests.put(f"{FIREBASE_URL}/monitoramentos.json", json=dados)
 
 # ==========================================
-# FUNÇÕES DE LIMPEZA E EXTRATOR HÍBRIDO
+# FUNÇÕES DE LIMPEZA E ENGENHARIA DE LINKS
 # ==========================================
 def parse_price(val):
     if val is None: return 999999.0
@@ -63,45 +63,26 @@ def parse_price(val):
     try: return float(num_str)
     except: return 999999.0
 
-def obter_link_direto_ou_catalogo(item):
-    """
-    Tenta extrair o link da loja a todo o custo.
-    Se a TV estiver presa num catálogo do Google, retorna o catálogo oficial intacto.
-    """
-    link_bruto = item.get("link", "")
-    
-    # 1. Se já é um link limpo direto da loja
-    if link_bruto and "google.com" not in link_bruto and link_bruto.startswith("http"):
-        return link_bruto
-        
-    # 2. Tenta extrair a URL pura escondida nas entranhas da query string
+def obter_link_seguro(link_bruto):
+    if not link_bruto: return ""
+    link_limpo = str(link_bruto).replace('"', '%22').replace("'", "%27")
+    if len(link_limpo) < 250:
+        return link_limpo
     try:
-        qs = urllib.parse.parse_qs(urllib.parse.urlparse(link_bruto).query)
-        for param in ['adurl', 'url', 'q']:
-            if param in qs:
-                target = str(qs[param][0])
-                if target.startswith('http') and "google.com" not in target:
-                    return target
+        url_encode = urllib.parse.quote(link_limpo)
+        res = requests.get(f"https://tinyurl.com/api-create.php?url={url_encode}", timeout=4)
+        if res.status_code == 200 and "tinyurl.com" in res.text:
+            return res.text.strip()
     except: pass
-    
-    # 3. Intercepta redirecionamentos invisíveis do Google (Ex: /aclk ou /url)
-    if link_bruto and "google.com" in link_bruto and ("url?" in link_bruto or "aclk?" in link_bruto):
-        try:
-            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
-            res = requests.get(link_bruto, headers=headers, allow_redirects=False, timeout=2)
-            loc = res.headers.get('Location', '')
-            if loc and "google.com" not in loc and loc.startswith("http"):
-                return loc
-        except: pass
-
-    # 4. Salvação: Se não tem link direto, usamos o Catálogo Oficial Intacto do Google Shopping.
-    # Como não removemos os parâmetros da SerpApi, ele nunca mais dará a tela "Nothing to see here".
-    link_catalogo = item.get("product_link", "")
-    if link_catalogo and link_catalogo.startswith("http"):
-        return link_catalogo
-
-    # Em último caso, devolvemos o link que a API entregou
-    return link_bruto
+    try:
+        qs = urllib.parse.parse_qs(urllib.parse.urlparse(link_limpo).query)
+        for param in ['adurl', 'url', 'q']:
+            if param in qs and str(qs[param][0]).startswith('http'):
+                url_ext = str(qs[param][0])
+                if len(url_ext) < 250:
+                    return urllib.parse.quote(url_ext, safe=":/&?=#-_.")
+    except: pass
+    return link_limpo[:250]
 
 # ==========================================
 # MOTORES DE BUSCA: VIAGENS
@@ -197,14 +178,16 @@ def buscar_produtos_google(metodo, produto_base, marca, termos_excluir, link_pro
                 preco = parse_price(preco_bruto)
                 
                 if preco <= orcamento:
-                    link_final = obter_link_direto_ou_catalogo(item)
-                    if not link_final:
-                        continue
+                    titulo = item.get("title", "")
+                    link_bruto = item.get("link", "")
+                    loja = item.get("source", "Loja não informada")
+                    
+                    link_final = obter_link_seguro(link_bruto)
                         
                     encontrados.append({
-                        "nome": item.get("title", "Produto"),
+                        "nome": titulo,
                         "total": preco, 
-                        "loja": item.get("source", "Catálogo Google" if "google.com" in link_final else item.get("source", "Loja")),
+                        "loja": loja,
                         "link": link_final
                     })
                     if len(encontrados) >= 5: break
@@ -217,14 +200,15 @@ def buscar_produtos_google(metodo, produto_base, marca, termos_excluir, link_pro
                 preco = parse_price(preco_bruto)
                 
                 if preco <= orcamento:
-                    link_final = obter_link_direto_ou_catalogo(seller)
-                    if not link_final:
-                        continue
+                    link_bruto = seller.get("link", "")
+                    loja = seller.get("name", "Loja não informada")
+                    
+                    link_final = obter_link_seguro(link_bruto)
                         
                     encontrados.append({
                         "nome": nome_produto,
                         "total": preco,
-                        "loja": seller.get("name", "Loja não informada"),
+                        "loja": loja,
                         "link": link_final
                     })
                     if len(encontrados) >= 5: break
@@ -250,7 +234,7 @@ def enviar_alerta_whatsapp_painel(numero, itens, codigo, tipo_monitoramento="via
         else:
             msg = f"📦 *{len(itens)} OFERTAS DE PRODUTO!* (Cód: {codigo})\n\n"
             for i, p in enumerate(itens, 1):
-                msg += f"{i}️⃣ *R$ {p['total']:,.2f}* na loja {p['loja']}\n🛒 {p['nome'][:45]}...\n🔗 Acesse a Oferta: {p['link']}\n\n"
+                msg += f"{i}️⃣ *R$ {p['total']:,.2f}* na loja {p['loja']}\n🛒 {p['nome'][:45]}...\n🔗 Acesse Aqui: {p['link']}\n\n"
                 
         msg += "O sistema continuará monitorando na frequência escolhida!"
         
@@ -341,12 +325,98 @@ if not st.session_state["autenticado"]:
 # MEGA DICIONÁRIO DE AEROPORTOS (GLOBAL)
 # ==========================================
 AEROPORTOS = {
-    "São Paulo (GRU)": "GRU", "São Paulo (CGH)": "CGH", "Rio de Janeiro (GIG)": "GIG", "Rio de Janeiro (SDU)": "SDU",
-    "Brasília (BSB)": "BSB", "Salvador (SSA)": "SSA", "Recife (REC)": "REC", "Fortaleza (FOR)": "FOR",
-    "Miami, EUA (MIA)": "MIA", "Orlando, EUA (MCO)": "MCO", "Nova York, EUA (JFK)": "JFK",
-    "Cancun, México (CUN)": "CUN", "Lisboa, Portugal (LIS)": "LIS", "Paris, França (CDG)": "CDG",
-    "Londres, UK (LHR)": "LHR", "Madri, Espanha (MAD)": "MAD", "Buenos Aires, Arg (EZE)": "EZE",
-    "Santiago, Chile (SCL)": "SCL", "Cape Town (CPT)": "CPT", "Joanesburgo (JNB)": "JNB"
+    # BRASIL - Principais
+    "São Paulo, SP, Brasil - Guarulhos (GRU)": "GRU",
+    "São Paulo, SP, Brasil - Congonhas (CGH)": "CGH",
+    "Campinas, SP, Brasil - Viracopos (VCP)": "VCP",
+    "Rio de Janeiro, RJ, Brasil - Galeão (GIG)": "GIG",
+    "Rio de Janeiro, RJ, Brasil - Santos Dumont (SDU)": "SDU",
+    "Brasília, DF, Brasil - Pres. Juscelino Kubitschek (BSB)": "BSB",
+    "Belo Horizonte, MG, Brasil - Confins (CNF)": "CNF",
+    "Belo Horizonte, MG, Brasil - Pampulha (PLU)": "PLU",
+    "Salvador, BA, Brasil - Luís Eduardo Magalhães (SSA)": "SSA",
+    "Porto Seguro, BA, Brasil (BPS)": "BPS",
+    "Recife, PE, Brasil - Guararapes (REC)": "REC",
+    "Fortaleza, CE, Brasil - Pinto Martins (FOR)": "FOR",
+    "Curitiba, PR, Brasil - Afonso Pena (CWB)": "CWB",
+    "Foz do Iguaçu, PR, Brasil - Cataratas (IGU)": "IGU",
+    "Porto Alegre, RS, Brasil - Salgado Filho (POA)": "POA",
+    "Florianópolis, SC, Brasil - Hercílio Luz (FLN)": "FLN",
+    "Navegantes, SC, Brasil - Min. Victor Konder (NVT)": "NVT",
+    "Manaus, AM, Brasil - Eduardo Gomes (MAO)": "MAO",
+    "Belém, PA, Brasil - Val de Cans (BEL)": "BEL",
+    "Goiânia, GO, Brasil - Santa Genoveva (GYN)": "GYN",
+    "Vitória, ES, Brasil - Eurico de Aguiar Salles (VIX)": "VIX",
+    "Natal, RN, Brasil - Gov. Aluízio Alves (NAT)": "NAT",
+    "São Luís, MA, Brasil - Marechal Cunha Machado (SLZ)": "SLZ",
+    "Maceió, AL, Brasil - Zumbi dos Palmares (MCZ)": "MCZ",
+    "João Pessoa, PB, Brasil - Pres. Castro Pinto (JPA)": "JPA",
+    "Aracaju, SE, Brasil - Santa Maria (AJU)": "AJU",
+    "Teresina, PI, Brasil - Sen. Petrônio Portella (THE)": "THE",
+    "Campo Grande, MS, Brasil (CGR)": "CGR",
+    "Cuiabá, MT, Brasil - Marechal Rondon (CGB)": "CGB",
+    "Porto Velho, RO, Brasil - Gov. Jorge Teixeira (PVH)": "PVH",
+    "Macapá, AP, Brasil - Alberto Alcolumbre (MCP)": "MCP",
+    "Boa Vista, RR, Brasil - Atlas Brasil Cantanhede (BVB)": "BVB",
+    "Rio Branco, AC, Brasil - Plácido de Castro (RBR)": "RBR",
+    "Palmas, TO, Brasil - Brigadeiro Lysias Rodrigues (PMW)": "PMW",
+
+    # AMÉRICA DO NORTE
+    "Miami, EUA - Miami Intl (MIA)": "MIA",
+    "Orlando, EUA - Orlando Intl (MCO)": "MCO",
+    "Nova York, EUA - John F. Kennedy (JFK)": "JFK",
+    "Nova York, EUA - Newark (EWR)": "EWR",
+    "Los Angeles, EUA - Los Angeles Intl (LAX)": "LAX",
+    "São Francisco, EUA - San Francisco Intl (SFO)": "SFO",
+    "Las Vegas, EUA - Harry Reid (LAS)": "LAS",
+    "Chicago, EUA - O'Hare (ORD)": "ORD",
+    "Dallas, EUA - Dallas/Fort Worth (DFW)": "DFW",
+    "Atlanta, EUA - Hartsfield-Jackson (ATL)": "ATL",
+    "Toronto, Canadá - Pearson (YYZ)": "YYZ",
+    "Vancouver, Canadá - Vancouver Intl (YVR)": "YVR",
+
+    # EUROPA
+    "Lisboa, Portugal - Humberto Delgado (LIS)": "LIS",
+    "Porto, Portugal - Francisco Sá Carneiro (OPO)": "OPO",
+    "Paris, França - Charles de Gaulle (CDG)": "CDG",
+    "Londres, Reino Unido - Heathrow (LHR)": "LHR",
+    "Madri, Espanha - Barajas (MAD)": "MAD",
+    "Barcelona, Espanha - El Prat (BCN)": "BCN",
+    "Roma, Itália - Fiumicino (FCO)": "FCO",
+    "Milão, Itália - Malpensa (MXP)": "MXP",
+    "Amsterdã, Holanda - Schiphol (AMS)": "AMS",
+    "Frankfurt, Alemanha - Frankfurt Intl (FRA)": "FRA",
+    "Munique, Alemanha - Munich Intl (MUC)": "MUC",
+    "Berlim, Alemanha - Brandenburg (BER)": "BER",
+    "Zurique, Suíça - Zurich Airport (ZRH)": "ZRH",
+
+    # AMÉRICA LATINA E CARIBE
+    "Cancun, México - Cancun Intl (CUN)": "CUN",
+    "Cidade do México, México - Benito Juárez (MEX)": "MEX",
+    "Buenos Aires, Argentina - Ezeiza (EZE)": "EZE",
+    "Buenos Aires, Argentina - Aeroparque (AEP)": "AEP",
+    "Santiago, Chile - Arturo Merino Benítez (SCL)": "SCL",
+    "Bogotá, Colômbia - El Dorado (BOG)": "BOG",
+    "Lima, Peru - Jorge Chávez (LIM)": "LIM",
+    "Montevidéu, Uruguai - Carrasco (MVD)": "MVD",
+    "Punta Cana, Rep. Dominicana - Punta Cana Intl (PUJ)": "PUJ",
+    "Panamá, Panamá - Tocumen (PTY)": "PTY",
+
+    # ÁSIA, ORIENTE MÉDIO E OCEANIA
+    "Dubai, EAU - Dubai Intl (DXB)": "DXB",
+    "Doha, Catar - Hamad Intl (DOH)": "DOH",
+    "Tóquio, Japão - Haneda (HND)": "HND",
+    "Tóquio, Japão - Narita (NRT)": "NRT",
+    "Pequim, China - Capital Intl (PEK)": "PEK",
+    "Seul, Coreia do Sul - Incheon (ICN)": "ICN",
+    "Singapura - Changi (SIN)": "SIN",
+    "Sydney, Austrália - Kingsford Smith (SYD)": "SYD",
+    "Auckland, Nova Zelândia - Auckland Intl (AKL)": "AKL",
+
+    # ÁFRICA
+    "Cape Town, África do Sul - Cape Town Intl (CPT)": "CPT",
+    "Joanesburgo, África do Sul - O.R. Tambo (JNB)": "JNB",
+    "Cairo, Egito - Cairo Intl (CAI)": "CAI"
 }
 
 st.sidebar.title("🤖 Painel do Robô")
@@ -411,6 +481,7 @@ with aba_nova_busca:
         tipo_voo = st.radio("Tipo:", ["Ida e Volta", "Somente Ida", "Multidestino"], horizontal=True)
         incluir_hospedagem = st.checkbox("🏨 Adicionar Hospedagem", value=(tipo_voo != "Multidestino"))
         
+        st.info("💡 **Dica:** Clique na caixa de Origem ou Destino e comece a digitar a cidade ou sigla para buscar mais rápido!")
         col_o, col_d, col_ida, col_volta = st.columns(4)
         with col_o: origem_n = st.selectbox("Origem", list(AEROPORTOS.keys()))
         with col_d: destino_n = st.selectbox("Destino", list(AEROPORTOS.keys()))
@@ -443,6 +514,9 @@ with aba_nova_busca:
                 
     else:
         st.header("📦 Monitoramento de Preços de Produtos")
+        
+        st.info("⚠️ **Aviso de Cache:** O Google armazena preços em tempo real, mas as lojas podem esgotar o estoque subitamente. O link gerado agora levará você diretamente à loja. Se a página der erro ou preço maior, a oferta expirou.")
+        
         metodo_busca = st.radio("Escolha o Método de Rastreio:", ["Busca por Filtros (Avançada)", "Rastrear Link Específico (Google Shopping)"])
         
         if metodo_busca == "Busca por Filtros (Avançada)":
@@ -474,7 +548,7 @@ with aba_nova_busca:
         hora_a = st.time_input("Horário Base do Alerta", datetime.time(9, 45))
 
     if st.button("Buscar e Salvar Automação", type="primary", use_container_width=True):
-        with st.spinner("🚀 Minerando links precisos..."):
+        with st.spinner("🚀 Gerando Links Seguros via TinyURL..."):
             cod = str(uuid.uuid4())[:6].upper()
             hoje_str = datetime.datetime.now().strftime("%Y-%m-%d")
             historico_precos = {}
@@ -529,12 +603,11 @@ with aba_nova_busca:
                             else:
                                 st.markdown(f'<a href="{r["link_v"]}" target="_blank" style="font-weight:bold;">🔗 Ver Voo</a>', unsafe_allow_html=True)
                         else:
-                            st.write(f"💰 **R$ {r['total']:,.2f}** | 🏬 {r['loja']}")
+                            st.write(f"💰 **R$ {r['total']:,.2f}** | 🏬 Loja: {r['loja']}")
                             st.write(f"📦 {r['nome']}")
-                            # Sem aspas soltas graças à formatação HTML pura do st.markdown unsafe_allow_html
-                            st.markdown(f'<a href="{r["link"]}" target="_blank" style="font-weight:bold;">🔗 Acessar Oferta Direta</a>', unsafe_allow_html=True)
+                            st.markdown(f'<a href="{r["link"]}" target="_blank" style="font-weight:bold;">🔗 Acessar Oferta (TinyURL Seguro)</a>', unsafe_allow_html=True)
             else: 
-                st.warning(f"🔔 NENHUMA OPÇÃO ENCONTRADA no teto de R$ {orc_max}. O robô ficará vigiando o mercado até que a oferta apareça.")
+                st.warning(f"🔔 ORÇAMENTO SALVO! O robô ficará vigiando, mas não enviou alerta agora porque não encontrou nenhuma opção no teto de R$ {orc_max}.")
 
 with aba_historico:
     st.subheader("📉 Análise de Tendência de Preços")
